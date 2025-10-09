@@ -1,0 +1,7 @@
+.git
+*.log
+vendor
+node_modules
+web
+nginx
+dist

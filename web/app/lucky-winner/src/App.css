@@ -1,0 +1,13 @@
+#root {
+  max-width: none; /* Убрали ограничение ширины для full-screen в mini app */
+  margin: 0;
+  padding: 0;
+  text-align: center;
+}
+
+/* Убрали ненужные стили (logo, card, read-the-docs) */
+
+/* Дополнительно: если нужно, добавьте глобальные стили, e.g. для фона (но лучше в Tailwind) */
+body {
+  background-color: #151515; /* Если нужно глобальный фон, но Layout уже задаёт */
+}

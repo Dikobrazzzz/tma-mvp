@@ -1,0 +1,32 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Node/Vite front
+node_modules/
+web/node_modules/
+web/dist/
+*.log
+
+# Go
+api/bin/
+api/vendor/
+*.test
+*.out
+
+# Docker & runtime
+.env
+certbot-etc/
+certbot-web/
+db_data/
+*.pem
+*.crt
+*.key
+
+# IDE
+.vscode/
+.idea/
+
+# Builds
+api/api
+api/.cache/

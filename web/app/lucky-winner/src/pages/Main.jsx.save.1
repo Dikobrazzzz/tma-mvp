@@ -1,0 +1,103 @@
+// pages/Main.jsx
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { useContext } from "react";
+import { AuthCtx } from "../auth/TelegramProvider";
+import { api } from "../api/client";
+import logo from "../assets/logo.svg";
+import imageMan from "../assets/Image man.svg";
+import flagUk from "../assets/flag-uk.svg";
+import BalanceBadge from "../components/BalanceBadge";
+import ProgressBar from "../components/ProgressBar";
+import Countdown from "../components/Countdown";
+
+export default function Main() {
+  console.log("Main renders OK"); // Дебаг
+  const { token } = useContext(AuthCtx);
+  const [data, setData] = useState({
+    maxWin: 5000, // Изменение: 500 → 5000
+    currency: "€",
+    balance: 1500,
+    progress: 0.2,
+    nextDrawAt: Date.now() + 13*3600*1000 + 41*60*1000
+  });
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (token) {
+      api("/api/user")
+        .then((responseData) => {
+          console.log("User data:", responseData); // Дебаг: что пришло
+          setData(prev => ({ ...prev, ...responseData })); // Merge, не перезапись (fallback на initial)
+        })
+        .catch(err => {
+          console.error("User fetch error:", err);
+          // Fallback — не меняем data
+        });
+    }
+  }, [token]); // deps только token, не data
+  const handleDeposit = () => { location.href = "https://888starz.bet"; };
+  const handleLang = () => { location.search = '?lang=en'; };
+  const { maxWin, currency, balance, progress, nextDrawAt } = data;
+  return (
+    <div className="min-h-screen bg-[#0f0f10] text-white flex flex-col">
+      {/* Локальный Header */}
+      <div className="relative flex-shrink-0">
+        {/* Image man.svg */}
+        <div className="h-58 rounded-b-[48px] overflow-hidden mt-[-8rem]">
+          <img src={imageMan} alt="" className="w-full h-full object-contain opacity-100" />
+        </div>
+        <div className="absolute inset-x-0 top-0 p-4 flex items-center justify-between">
+          <img src={logo} alt="STARZ" className="h-6 drop-shadow" />
+          <div className="flex items-center gap-2">
+            <button onClick={handleLang} className="rounded-full bg-black/50 p-1.5">
+              <img src={flagUk} className="h-5 w-5 rounded-full" alt="lang" />
+            </button>
+            <BalanceBadge amount={balance} currency={currency} />
+          </div>
+        </div>
+        {/* Prize pool — fallback для maxWin, сдвинут вниз */}
+        <div className="absolute bottom-20 inset-x-0 px-6 mt-4">
+          <div className="mx-auto max-w-xs"> 
+           <div className="text-white/70 text-xs mb-1 text-center">Prize pool</div>
+           <div className="rounded-2xl bg-black/60 backdrop-blur border border-white/10 p-3 text-center shadow-lg">
+            <div className="text-5xl font-bold text-yellow-300 tracking-tight">
+              {currency}{(maxWin || 5000).toLocaleString()}
+            </div>
+          </div>
+        </div>
+      </div>
+ 
+      <div className="flex-1 px-6 -mt-16 flex flex-col gap-4 max-w-md mx-auto"> {/* Изменение */}
+        <div className="transition-none">
+          <ProgressBar value={progress || 0.2} amount={maxWin || 5000} currency={currency || "€"} />
+        </div>
+        <div className="transition-none">
+          <Countdown to={nextDrawAt || Date.now() + 13*3600*1000 + 41*60*1000} />
+        </div>
+        <div className="transition-none">
+          <button
+            onClick={handleDeposit}
+            className="py-3 max-w-[90%] mx-auto rounded-full bg-yellow-300 text-black font-extrabold text-lg shadow-lg text-center"  // Фикс: полный className с закрытой строкой
+          >
+            Deposit
+          </button>
+        </div>
+        <div className="transition-none">
+          <span
+            onClick={() => setExpanded(!expanded)}
+            className="text-center block w-full text-yellow-300 text-sm hover:text-yellow-200 cursor-pointer transition-colors select-none"
+          >
+            More details {expanded ? '▲' : '▼'}
+          </span>
+        </div>
+        <div className={expanded ? 'visible opacity-100' : 'invisible opacity-0'} style={{transition: 'opacity 0.3s ease'}}>
+          <div className="space-y-4 animate-fade-in mt-4">
+            <div className="text-sm opacity-70 leading-relaxed">
+              Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

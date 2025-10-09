@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tma}
+      POSTGRES_USER: ${POSTGRES_USER:-tma}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tma}
+      DEV_OPEN_GATE: ${DEV_OPEN_GATE:-1}
+      ALLOW_GUESTS: ${ALLOW_GUESTS:-1}
+      DISABLE_INITDATA: ${DISABLE_INITDATA:-1}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./api/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./api
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      GIN_MODE: ${GIN_MODE:-release}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_TTL: ${JWT_TTL:-24h}
+      OTP_SALT: ${OTP_SALT}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
+      BOT_TOKEN: ${BOT_TOKEN}
+    depends_on:
+      - db
+    ports:
+      - "8080:8080"
+
+  nginx:
+    image: nginx:1.27
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web/dist:/usr/share/nginx/html:ro
+      - ./certbot-etc:/etc/letsencrypt
+      - ./certbot-web:/var/www/certbot
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+
+volumes:
+  db_data:
