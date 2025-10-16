@@ -27,7 +27,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       GIN_MODE: ${GIN_MODE:-release}
       JWT_SECRET: ${JWT_SECRET}
-      JWT_TTL: ${JWT_TTL:-24h}
+      JWT_TTL: ${JWT_TTL:-30s}
       OTP_SALT: ${OTP_SALT}
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}

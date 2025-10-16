@@ -1,0 +1,58 @@
+{
+  "winUpTo": "ВЫИГРАЙ ДО",
+  "registerWith888Starz": "Зарегистрируйтесь в 888STARZ",
+  "placeFirstBet": "Сделайте первую ставку",
+  "receiveBonus": "Получите бонус 500 EUR",
+  "text": "Текст",
+  "prizePool": "Призовой фонд",
+  "deposit": "Депозит",
+  "moreDetails": "Подробнее",
+  "description": "This promotion is available to all registered users who are eligible to receive promotions.
+Every day at 00:01 UTC twenty five of the qualifying players will be randomly selected in a daily raffle.
+The daily prize is 500 EUR but if not claimed by 23:59 UTC on the same day, it will be added to the grand jackpot bank. The grand jackpot can reach up to 5,000 EUR
+In order to claim the prize, the winning player needs to log in before 23:59 UTC on the same day and click on the "Claim" button in the Congratulations pop-up.
+After claimed, the prize will be added in to the users account balance.
+The prize will be with 1× wagering requirements which needs to be completed within 10 days from claiming the prize.
+The maximum bet allowed while playing with bonus is 5 EUR until all necessary wagering requirements are met.
+Different games contribute differently towards the bonus release. For complete Casino Bonus Terms, please visit section 3 of General Terms and Conditions.
+This bonus can’t be combined with other bonuses (promotions) at the same time. If you activate another bonus or claim free spins while having an active bonus, the current active bonus and any corresponding winnings will be automatically removed.
+This promotion is not limited in time. Still, our Website reserves the right to modify and terminate the promotion at its discretion and without giving any prior notice.
+This promotion is valid in accordance with the Terms and Conditions.",
+  "winners": "Победители",
+  "today": "Сегодня",
+  "yesterday": "Вчера",
+  "last7Days": "7 дней",
+  "top10Win": "Топ 10",
+  "number": "№",
+  "userId": "ID пользователя",
+  "totalWinsCount": "Общее количество выигрышей",
+  "totalWins": "Общий выигрыш €",
+  "profile": "Профиль",
+  "myWinnings": "Мои выигрыши",
+  "date": "Дата",
+  "winnings": "Выигрыши",
+  "status": "Статус",
+  "support": "Поддержка",
+  "login": "Вход",
+  "terms": "Условия",
+  "luckyWinner": "Главная",
+  "settings": "Настройки",
+  "language": "Язык",
+  "language.en": "Английский",
+  "language.ru": "Русский",
+  "back": "Назад",
+  "goOut": "Выйти",
+  "thisFieldRequired": "Это поле обязательно",
+  "resendLimitReached": "Достигнут лимит отправок",
+  "sendError": "Ошибка отправки",
+  "codeExpired": "Код истек.",
+  "verificationFailed": "Проверка не удалась",
+  "invalidCode": "Неверный код",
+  "loginError": "Ошибка входа",
+  "email": "Email",
+  "sendCode": "Отправить код",
+  "enterCode": "Введите код",
+  "secondLeft": "секунд осталось",
+  "loading": "Загрузка...",
+  "enter": "Войти"
+}

@@ -1,5 +1,7 @@
-// pages/Winners.jsx
+// src/pages/Winners.jsx
 import { useState, useEffect, useContext } from "react";
+import { useTranslation } from 'react-i18next';
+
 import { AuthCtx } from "../auth/TelegramProvider";
 import wall from "../assets/Wall.svg";
 import icWinners from "../assets/ic_Winners.svg";
@@ -9,24 +11,15 @@ const Tab = ({ active, children, onClick }) => (
   <button
     onClick={onClick}
     style={{
-      // размеры кнопок (шире и выше)
-      padding: "8px 14px",        // было 6px 16px
-      fontSize: "12px",            // было 10px
+      padding: "8px 14px",
+      fontSize: "12px",
       borderRadius: "9999px",
-      minWidth: "auto",            // чтобы все кнопки были ровнее по ширине
+      minWidth: "auto",
       minHeight: "36px",
       whiteSpace: "nowrap",
-
-      // цвета
       background: active ? "#FFFE45" : "#1A1A1A",
       color: active ? "#000000" : "#FFFFFF",
-
-      // тень: активная — заметная мягкая «жёлтая»; неактивная — лёгкая тёмная
-      boxShadow: active
-        ? "none" 
-        : "0 4px 10px rgba(0,0,0,0.25)",
-
-      // мелочи
+      boxShadow: active ? "none" : "0 4px 10px rgba(0,0,0,0.25)",
       fontWeight: active ? 700 : 500,
       border: "1px solid transparent",
       transition: "transform 0.15s ease, box-shadow 0.2s ease",
@@ -40,7 +33,30 @@ const Tab = ({ active, children, onClick }) => (
   </button>
 );
 
+function genMock(tab) {
+  const rows = [];
+  const conf = {
+    today:     { base: 100, userPrefix: "askill" },
+    yesterday: { base: 80,  userPrefix: "user"   },
+    last7:     { base: 120, userPrefix: "week"   },
+    top10:     { base: 500, userPrefix: "top"    },
+  }[tab] || { base: 100, userPrefix: "user" };
+
+  for (let i = 1; i <= 25; i++) {
+    const isTop = tab === "top10";
+    const multiplier = isTop ? (26 - i) * 100 : (i % 5 + 1) * 10;
+    const amount = conf.base + multiplier + (isTop ? i * 50 : i);
+    const wins = `€${amount.toLocaleString("en-US")}`;
+    const count = isTop ? (i % 5) + 3 : (i % 4) + 1;
+    const user = `${conf.userPrefix}${(1000 + i).toString(36)}****`;
+    rows.push({ n: i, user, count, wins });
+  }
+  return rows;
+}
+
 export default function Winners() {
+  const { t } = useTranslation();
+
   const { token } = useContext(AuthCtx);
   const [tab, setTab] = useState("today");
   const [data, setData] = useState([]);
@@ -48,30 +64,24 @@ export default function Winners() {
 
   useEffect(() => {
     setLoading(true);
-    const mockData = {
-      today: [
-        { n: 1, user: "askill****", count: 2, wins: "€100" },
-        { n: 2, user: "askill****", count: 1, wins: "€200" },
-        { n: 3, user: "askill****", count: 2, wins: "€90" },
-        { n: 4, user: "askill****", count: 1, wins: "€90" },
-      ],
-      yesterday: [{ n: 1, user: "user****", count: 1, wins: "€150" }],
-      last7: [],
-      top10: [{ n: 1, user: "topuser****", count: 5, wins: "€5000" }],
-    };
-    const t = setTimeout(() => {
-      setData(mockData[tab] || mockData.today);
+    const timeoutId = setTimeout(() => {
+      setData(genMock(tab));
       setLoading(false);
-    }, 500);
-    return () => clearTimeout(t);
+    }, 400);
+    return () => clearTimeout(timeoutId);
   }, [tab]);
 
-  const tabs = { today: "Today", yesterday: "Yesterday", last7: "Last 7 days", top10: "Top 10 Win" };
+  const tabs = {
+    today: t('today'),
+    yesterday: t('yesterday'),
+    last7: t('last7Days'),
+    top10: t('top10Win')
+  };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-[#151515] text-white flex items-center justify-center">
-        Загрузка...
+        {t('loading')}...
       </div>
     );
   }
@@ -87,11 +97,11 @@ export default function Winners() {
       <div className="relative z-10 px-4 pt-4 pb-2">
         <h1 className="text-3xl font-bold text-white flex items-center gap-2">
           <img src={icWinners} alt="" className="h-9 w-9" />
-          Winners
+          {t('winners')}
         </h1>
       </div>
 
-      {/* Контент сдвинут на 20% вниз */}
+      {/* Контент сдвинут на 12vh вниз */}
       <div className="relative z-10 mt-[12vh] flex flex-col items-center">
         {/* Табы — по центру */}
         <div className="flex gap-3 flex-wrap justify-center mb-4">
@@ -112,23 +122,30 @@ export default function Winners() {
           }}
         >
           <div className="overflow-y-auto px-4">
-            {/* Базовый размер шрифта таблицы — 6px */}
             <table className="w-full text-[6px] text-[#8C8C8C]">
               <thead>
                 <tr className="text-[#FFFE45]">
-                  <th className="py-2 text-left text-[10px]">N°</th>
-                  <th className="py-2 text-left text-[10px]">User ID</th>
-                  <th className="py-2 text-left text-[10px]">Total Wins Count</th>
-                  <th className="py-2 text-left text-[10px]">Total Wins €</th>
+                  <th className="py-2 text-center text-[10px]">{t('number')}</th>
+                  <th className="py-2 text-left   text-[10px]">{t('userId')}</th>
+                  <th className="py-2 text-center text-[10px] leading-tight">
+                    <span className="block">Total wins</span>
+                    <span className="block">count</span>
+                  </th>
+                  <th className="py-2 text-center text-[10px] leading-tight">
+                    <span className="block">Total wins</span>
+                    <span className="block">amount</span>
+                  </th>
                 </tr>
               </thead>
+
               <tbody>
                 {data.map((item, i) => (
                   <tr key={i} className="border-b border-white/10">
-                    <td className="py-2 text-[10px]">{item.n}</td>
-                    <td className="py-2 text-[10px]">{item.user}</td>
-                    <td className="py-2 text-[10px]">{item.count}</td>
-                    <td className="py-2 text-[10px]">{item.wins}</td>
+                    {/* было 20px → стало ~13px */}
+                    <td className="py-2 text-[13px] text-center">{item.n}</td>
+                    <td className="py-2 text-[13px] text-left">{item.user}</td>
+                    <td className="py-2 text-[13px] text-center">{item.count}</td>
+                    <td className="py-2 text-[13px] text-center">{item.wins}</td>
                   </tr>
                 ))}
               </tbody>
