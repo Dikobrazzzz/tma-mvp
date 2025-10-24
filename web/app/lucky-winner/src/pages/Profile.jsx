@@ -17,6 +17,11 @@ export default function Profile() {
   const navigate = useNavigate();
   const { token } = useContext(AuthCtx);
 
+  // защита маршрута: без токена — на логин
+  useEffect(() => {
+    if (!token) navigate("/login", { replace: true });
+  }, [token, navigate]);
+
   const [data, setData] = useState({
     userId: "askill4831641654",
     totalWins: 34,

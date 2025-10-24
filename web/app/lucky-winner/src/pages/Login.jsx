@@ -38,6 +38,9 @@ export default function Login() {
     }
   }, [left]);
 
+  // нормализация e-mail: trim + lower
+  const normalizeEmail = (e) => e.trim().toLowerCase();
+
   // стили «как €5000 в Main»
   const baseBorder = {
     background:
@@ -59,7 +62,8 @@ export default function Login() {
 
   const sendCode = async () => {
     setMsg("");
-    if (!email.trim()) {
+    const emailNorm = normalizeEmail(email);
+    if (!emailNorm) {
       setErrors((p) => ({ ...p, email: t("thisFieldRequired") }));
       return;
     }
@@ -70,7 +74,23 @@ export default function Login() {
     if (left > 0) return;
 
     try {
-      await api("/api/verify/send", { method: "POST", token, body: { email } });
+      // 1) Пред-проверка: есть ли e-mail в БД
+      const chk = await api("/api/auth/exists", {
+        method: "POST",
+        token,
+        body: { email: emailNorm },
+      });
+      if (!chk?.exists) {
+        setErrors((p) => ({ ...p, email: t("emailNotAllowed") }));
+        return;
+      }
+
+      // 2) Отправка кода
+      await api("/api/verify/send", {
+        method: "POST",
+        token,
+        body: { email: emailNorm },
+      });
       setLeft(30);
       const now = Date.now();
       setSentAt(now);
@@ -86,11 +106,14 @@ export default function Login() {
     const nextErrors = { email: "", code: "" };
     let has = false;
 
-    if (!email.trim()) {
-      nextErrors.email = t("thisFieldRequired"); has = true;
+    const emailNorm = normalizeEmail(email);
+    if (!emailNorm) {
+      nextErrors.email = t("thisFieldRequired");
+      has = true;
     }
     if (!code.trim()) {
-      nextErrors.code = t("thisFieldRequired"); has = true;
+      nextErrors.code = t("thisFieldRequired");
+      has = true;
     }
     setErrors(nextErrors);
     if (has) return;
@@ -104,7 +127,11 @@ export default function Login() {
 
     try {
       setLoading(true);
-      const res = await api("/api/verify/check", { method: "POST", token, body: { email, code } });
+      const res = await api("/api/verify/check", {
+        method: "POST",
+        token,
+        body: { email: emailNorm, code },
+      });
       if (res.token) {
         setToken(res.token);
         localStorage.setItem("jwt", res.token);
@@ -150,7 +177,7 @@ export default function Login() {
             <div className="relative rounded-3xl px-3 py-2" style={styleFor(!!errors.email)}>
               <input
                 className="w-full bg-transparent rounded-3xl text-white outline-none text-[12px] md:text-[14px] text-left py-2"
-                placeholder=""
+                placeholder={t("email")}
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
@@ -158,16 +185,8 @@ export default function Login() {
                 }}
                 inputMode="email"
                 autoComplete="email"
+                type="email"
               />
-              {/* Лейбл рендерим только когда поле пустое */}
-              {!email.trim() && (
-                <span
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2
-                             text-[#9CA3AF] text-[14px] md:text-[16px] font-light"
-                >
-                  {t("email")}
-                </span>
-              )}
             </div>
             <div className="h-4 relative">
               {errors.email && (
@@ -215,7 +234,7 @@ export default function Login() {
             <div className="relative rounded-3xl px-3 py-2" style={styleFor(!!errors.code)}>
               <input
                 className="w-full bg-transparent rounded-3xl text-white outline-none text-[12px] md:text-[14px] text-left py-2"
-                placeholder=""
+                placeholder={t("enterCode")}
                 value={code}
                 onChange={(e) => {
                   setCode(e.target.value);
@@ -224,15 +243,6 @@ export default function Login() {
                 inputMode="numeric"
                 autoComplete="one-time-code"
               />
-              {/* Лейбл рендерим только когда поле пустое */}
-              {!code.trim() && (
-                <span
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2
-                             text-[#9CA3AF] text-[14px] md:text-[16px] font-light"
-                >
-                  {t("enterCode")}
-                </span>
-              )}
             </div>
             <div className="h-4 relative">
               {errors.code && (
