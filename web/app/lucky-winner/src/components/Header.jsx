@@ -1,72 +1,134 @@
 // src/components/Header.jsx
-import { useContext, useCallback } from "react";
+import { useContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-
 import { AuthCtx } from "../auth/TelegramProvider";
 import logo from "../assets/logo.svg";
 import flagUk from "../assets/flag-uk.svg";
-import BalanceBadge from "./BalanceBadge";
-
+import flagRu from "../assets/flag-ru.svg";
+const normalize = (lng) => (lng?.toLowerCase().startsWith("ru") ? "ru" : "en");
 export default function Header({
   className = "",
   logoHref = "https://win888strazci.com/en",
   showFlag = true,
-  balanceAmount = 0,        // ← дефолт 0
-  currency = "€",
 }) {
   const { t, i18n } = useTranslation();
   const { token } = useContext(AuthCtx);
-
   const LOGO_H = "h-5";
-  const FLAG_H = "h-7";
-  const BTN_H  = "h-7";
-
-  const toggleLanguage = () => {
-    const newLang = i18n.language === "en" ? "ru" : "en";
-    i18n.changeLanguage(newLang);
-    localStorage.setItem("language", newLang);
-  };
-
+  const BTN_H = "h-7";
   const onLogoClick = useCallback(() => {
     const tg = window.Telegram?.WebApp;
     if (tg?.openLink) tg.openLink(logoHref);
     else window.open(logoHref, "_blank", "noopener");
   }, [logoHref]);
-
+  // ---- Language dropdown ----
+  const [open, setOpen] = useState(false);
+  const langRef = useRef(null);
+  const cur = normalize(i18n.language);
+  const curFlag = useMemo(() => (cur === "en" ? flagUk : flagRu), [cur]);
+  const handleSelect = (lang) => {
+    i18n.changeLanguage(lang);
+    localStorage.setItem("language", lang);
+    setOpen(false);
+  };
+  // close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (!langRef.current) return;
+      if (!langRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("click", onDoc);
+    return () => document.removeEventListener("click", onDoc);
+  }, [open]);
+  // compact icon box
+  const ICON_BOX = "w-4 h-4";
+  const ICON_IMG =
+    "w-4 h-4 rounded-full select-none pointer-events-none " +
+    "outline-none ring-0 focus:ring-0 focus:outline-none hover:outline-none active:outline-none border-0";
+  const PANEL_W = "w-36";
+  const itemBase =
+    "group cursor-pointer w-full flex items-center px-3 py-2 gap-2 " +
+    "bg-transparent hover:bg-transparent active:bg-transparent focus:bg-transparent " +
+    "appearance-none outline-none focus:outline-none focus-visible:outline-none " +
+    "ring-0 focus:ring-0 focus-visible:ring-0 ring-offset-0 focus:ring-offset-0 " +
+    "border-0 focus:border-0 shadow-none hover:shadow-none focus:shadow-none";
+  const itemText =
+    "text-sm leading-none font-light text-white transition-colors group-hover:text-[#fffe45]";
   return (
-    <div className={`relative z-10 flex-shrink-0 px-4 pt-3 pb-2 flex items-center justify-between leading-none ${className}`}>
-      {/* Логотип */}
+    <div
+      data-sticky-header
+      className={`relative z-[300] flex-shrink-0 px-4 pt-3 pb-2 flex items-center justify-between leading-none ${className}`}>
+      {/* Logo */}
       <img
         src={logo}
         alt="eStarz"
         className={`${LOGO_H} cursor-pointer`}
         onClick={onLogoClick}
       />
-
-      {/* Правый блок */}
+      {/* Right side */}
       <div className="flex items-center gap-2">
         {showFlag && (
-          <button
-            onClick={toggleLanguage}
-            className="p-0 m-0 inline-flex items-center justify-center leading-none focus:outline-none border-none bg-transparent hover:bg-transparent active:bg-transparent"
-            aria-label="toggle language"
-            type="button"
-          >
-            <img
-              src={flagUk}
-              className={`${FLAG_H} w-7 rounded-full`}
-              alt={i18n.language.toUpperCase()}
-            />
-          </button>
+          <div className="relative" ref={langRef}>
+            {/* Main flag button without any outlines/rings */}
+            <button
+              onClick={() => setOpen((v) => !v)}
+              className="
+                p-0 m-0 inline-flex items-center justify-center cursor-pointer
+                bg-transparent appearance-none
+                outline-none! focus:outline-none! focus-visible:outline-none! hover:outline-none! active:outline-none!
+                ring-0! focus:ring-0! focus-visible:ring-0! hover:ring-0! ring-offset-0! focus:ring-offset-0!
+                border-0! focus:border-0! hover:border-0!
+                shadow-none! hover:shadow-none! focus:shadow-none!
+              "
+              aria-label="language menu"
+              type="button"
+              style={{ WebkitTapHighlightColor: "transparent", boxShadow: "none" }}
+            >
+              <img
+                src={curFlag}
+                className={`
+                  h-7 w-7 rounded-full transition-transform duration-150
+                  ${open ? "scale-95" : "scale-100"}
+                  outline-none! ring-0! focus:ring-0! focus:outline-none! hover:outline-none! active:outline-none! border-0!
+                  hover:border-0! hover:shadow-none! focus:shadow-none!
+                  select-none pointer-events-none
+                `}
+                alt={cur.toUpperCase()}
+                draggable={false}
+                style={{ boxShadow: "none" }}
+              />
+            </button>
+            {/* Dropdown */}
+            <div
+              className={`
+                absolute right-0 mt-2 ${PANEL_W} z-50
+                overflow-hidden rounded-2xl
+                bg-[#1A1A1A] border border-white/10
+                shadow-[0_8px_24px_rgba(0,0,0,0.35)]
+                transition-all duration-200 ease-out
+                ${open ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-1 pointer-events-none"}
+              `}
+            >
+              {/* English */}
+              <button type="button" onClick={() => handleSelect("en")} className={itemBase}>
+                <span className={`shrink-0 ${ICON_BOX} inline-flex items-center justify-center`}>
+                  <img src={flagUk} alt="EN" className={ICON_IMG} draggable={false} />
+                </span>
+                <span className={itemText}>{t("language.en", "English")}</span>
+              </button>
+              <div className="border-t border-white/10" />
+              {/* Russian */}
+              <button type="button" onClick={() => handleSelect("ru")} className={itemBase}>
+                <span className={`shrink-0 ${ICON_BOX} inline-flex items-center justify-center`}>
+                  <img src={flagRu} alt="RU" className={ICON_IMG} draggable={false} />
+                </span>
+                <span className={itemText}>{t("language.ru", "Russian")}</span>
+              </button>
+            </div>
+          </div>
         )}
-
-        {token ? (
-          // Для залогиненного пользователя — всегда 0
-          <BalanceBadge amount={0} currency={currency} />
-          // Если хочешь оставить возможность прокинуть другое значение из пропсов, можно так:
-          // <BalanceBadge amount={balanceAmount ?? 0} currency={currency} />
-        ) : (
+        {token ? null : (
           <Link
             to="/login"
             className={`${BTN_H} inline-flex items-center justify-center px-8 rounded-full bg-[#fffe45] text-black text-xs font-medium leading-none`}

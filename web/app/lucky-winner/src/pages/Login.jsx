@@ -2,46 +2,50 @@
 import { useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-
 import { AuthCtx } from "../auth/TelegramProvider";
 import { api } from "../api/client";
+import { setAutoLoginDisabled } from "../auth/tokenStore"; // NEW
 import wall from "../assets/Wall.svg";
 import icProfile from "../assets/ic_Profile.svg";
 import Header from "../components/Header";
 import BottomNav from "../components/BottomNav";
+import ClaimBonusModal from "../components/ClaimBonusModal";
+import ClaimConfirmationModal from "../components/ClaimConfirmationModal"; // NEW: импорт отдельного компонента
+import EmailNotFoundModal from "../components/EmailNotFoundModal";
+import claimBack from "../assets/Claim_back.svg"; // Reused for consistency
 
 export default function Login() {
   const { t } = useTranslation();
-
   const navigate = useNavigate();
   const { token, setToken } = useContext(AuthCtx);
-
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-
-  // таймер 30 сек на повторную отправку
   const [left, setLeft] = useState(0);
-  // отметка времени отправки кода (для 30-минутной валидности)
-  const [sentAt, setSentAt] = useState(null); // number|null (ms)
-  // лимит повторных отправок: не более 5 раз ПОСЛЕ первой
+  const [sentAt, setSentAt] = useState(null);
   const [firstSent, setFirstSent] = useState(false);
   const [resendCount, setResendCount] = useState(0);
-
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({ email: "", code: "" });
   const [msg, setMsg] = useState("");
+  const [showNotFound, setShowNotFound] = useState(false);
+  // баланс для шапки
+  const [balance, setBalance] = useState(0);
+  // модалка «Claim Bonus» после логина
+  const [showClaimBonus, setShowClaimBonus] = useState(false);
+  // NEW: вторая модалка с подтверждением
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const CLAIM_AMOUNT = 500;
 
   useEffect(() => {
     if (left > 0) {
-      const t = setInterval(() => setLeft((s) => Math.max(0, s - 1)), 1000);
-      return () => clearInterval(t);
+      const tmr = setInterval(() => setLeft((s) => Math.max(0, s - 1)), 1000);
+      return () => clearInterval(tmr);
     }
   }, [left]);
 
-  // нормализация e-mail: trim + lower
   const normalizeEmail = (e) => e.trim().toLowerCase();
+  const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
-  // стили «как €5000 в Main»
   const baseBorder = {
     background:
       "linear-gradient(#151515, #151515) padding-box, linear-gradient(to bottom, rgba(255,255,255,0.22), #151515) border-box",
@@ -63,8 +67,13 @@ export default function Login() {
   const sendCode = async () => {
     setMsg("");
     const emailNorm = normalizeEmail(email);
+    // кастомная валидация email
     if (!emailNorm) {
       setErrors((p) => ({ ...p, email: t("thisFieldRequired") }));
+      return;
+    }
+    if (!isValidEmail(emailNorm)) {
+      setErrors((p) => ({ ...p, email: t("invalidEmail", "Invalid email") }));
       return;
     }
     if (firstSent && resendCount >= MAX_RESENDS) {
@@ -72,20 +81,18 @@ export default function Login() {
       return;
     }
     if (left > 0) return;
-
     try {
-      // 1) Пред-проверка: есть ли e-mail в БД
+      // проверка в белом списке
       const chk = await api("/api/auth/exists", {
         method: "POST",
         token,
         body: { email: emailNorm },
       });
       if (!chk?.exists) {
-        setErrors((p) => ({ ...p, email: t("emailNotAllowed") }));
+        setShowNotFound(true);
+        setErrors((p) => ({ ...p, email: "" }));
         return;
       }
-
-      // 2) Отправка кода
       await api("/api/verify/send", {
         method: "POST",
         token,
@@ -105,10 +112,12 @@ export default function Login() {
     setMsg("");
     const nextErrors = { email: "", code: "" };
     let has = false;
-
     const emailNorm = normalizeEmail(email);
     if (!emailNorm) {
       nextErrors.email = t("thisFieldRequired");
+      has = true;
+    } else if (!isValidEmail(emailNorm)) {
+      nextErrors.email = t("invalidEmail", "Invalid email");
       has = true;
     }
     if (!code.trim()) {
@@ -117,14 +126,11 @@ export default function Login() {
     }
     setErrors(nextErrors);
     if (has) return;
-
-    // валидность кода: 30 минут с момента последней отправки
     const THIRTY_MIN = 30 * 60 * 1000;
     if (!sentAt || Date.now() - sentAt > THIRTY_MIN) {
       setErrors((p) => ({ ...p, code: t("codeExpired") }));
       return;
     }
-
     try {
       setLoading(true);
       const res = await api("/api/verify/check", {
@@ -133,9 +139,24 @@ export default function Login() {
         body: { email: emailNorm, code },
       });
       if (res.token) {
-        setToken(res.token);
-        localStorage.setItem("jwt", res.token);
-        navigate("/profile", { replace: true });
+        // сохраняем токен централизованно (CloudStorage + LS через AuthCtx)
+        await setToken(res.token);
+        // включаем автологин по initData на будущее (после явного входа)
+        await setAutoLoginDisabled(false); // NEW
+        // пост-логин: профиль (баланс + флаг модалки)
+        try {
+          const me = await api("/api/me", { token: res.token });
+          if (typeof me?.balance === "number") setBalance(me.balance);
+          if (me?.should_show_claim_denied) {
+            api("/api/claim-denied-ack", { method: "POST", token: res.token }).catch(() => {});
+            setShowClaimBonus(true);
+            return; // дождёмся действия в модалке
+          }
+        } catch (postLoginErr) {
+          console.error("post-login /api/me check failed:", postLoginErr);
+        }
+        // обычный сценарий
+        navigate("/", { replace: true });
         return;
       }
       setMsg(t("verificationFailed"));
@@ -152,25 +173,27 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-[#151515] text-white flex flex-col relative pb-20">
-      {/* Фон */}
       <img
         src={wall}
         alt=""
         className="fixed inset-x-0 top-[-14%] w-full scale-30 object-cover z-0"
       />
-
-      <Header />
-
-      {/* Заголовок */}
+      <Header balanceAmount={balance} />
       <div className="relative z-10 px-4 pt-4 pb-2">
         <h1 className="text-3xl font-bold text-white flex items-center gap-2">
           <img src={icProfile} alt="" className="h-9 w-9" />
           {t("login")}
         </h1>
       </div>
-
-      {/* Контент */}
-      <div className="relative z-10 flex-1 px-4 pt-[15vh] overflow-y-auto">
+      {/* ФОРМА */}
+      <form
+        className="relative z-10 flex-1 px-4 pt-[15vh] overflow-y-auto"
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!loading) login();
+        }}
+      >
         {/* Email */}
         <div className="transition-none flex justify-center">
           <div className="w-[90%]">
@@ -186,6 +209,7 @@ export default function Login() {
                 inputMode="email"
                 autoComplete="email"
                 type="email"
+                enterKeyHint="next"
               />
             </div>
             <div className="h-4 relative">
@@ -197,8 +221,7 @@ export default function Login() {
             </div>
           </div>
         </div>
-
-        {/* "Send code" */}
+        {/* Send code */}
         {(() => {
           const sendDisabled = left > 0 || (firstSent && resendCount >= MAX_RESENDS);
           return (
@@ -227,7 +250,6 @@ export default function Login() {
             </div>
           );
         })()}
-
         {/* Enter code */}
         <div className="transition-none flex justify-center mt-[4vh]">
           <div className="w-[90%]">
@@ -242,6 +264,13 @@ export default function Login() {
                 }}
                 inputMode="numeric"
                 autoComplete="one-time-code"
+                enterKeyHint="go"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (!loading) login();
+                  }
+                }}
               />
             </div>
             <div className="h-4 relative">
@@ -253,11 +282,9 @@ export default function Login() {
             </div>
           </div>
         </div>
-
-        {/* Отступ перед таймером/кнопкой — регулирует общий блок ниже */}
+        {/* Spacer */}
         <div className="h-[12vh]" />
-
-        {/* ТАЙМЕР — фиксированный слот, чтобы кнопка не двигалась */}
+        {/* Timer */}
         <div className="w-full flex justify-center mb-2">
           <div
             className={`h-4 flex items-center text-[10px] font-semibold text-center ${left > 0 ? "" : "invisible"}`}
@@ -267,23 +294,52 @@ export default function Login() {
             <span className="text-gray-400">{t("secondLeft")}</span>
           </div>
         </div>
-
-        {/* Кнопка Enter — позиция больше не меняется */}
+        {/* Login button */}
         <div className="transition-none flex justify-center mt-[2vh]">
           <button
-            onClick={login}
+            type="submit"
             className="w-[90%] py-3 rounded-3xl bg-[#FFFE45] text-black font-extrabold text-lg shadow-lg text-center"
             disabled={loading}
           >
             {loading ? t("loading") : t("enter")}
           </button>
         </div>
-
-        {/* Общие ошибки (сервер/сеть) */}
         {msg && <div className="text-sm text-red-400 text-center mt-4">{msg}</div>}
-      </div>
-
+      </form>
       <BottomNav />
+      {/* Модалка Claim Bonus сразу после логина */}
+      <ClaimBonusModal
+        open={showClaimBonus}
+        amount={CLAIM_AMOUNT}
+        onConfirm={async () => {
+          try {
+            const r = await api("/api/claim-bonus", {
+              method: "POST",
+              token: localStorage.getItem("jwt") || token,
+              body: { amount: CLAIM_AMOUNT, reason: "claim_denied_bonus" },
+            });
+            if (typeof r?.new_balance === "number") setBalance(r.new_balance);
+          } catch (e) {
+            console.error("claim-bonus failed", e);
+          } finally {
+            setShowClaimBonus(false);
+            setShowConfirmation(true); // NEW: показать вторую модалку
+          }
+        }}
+        onClose={() => {
+          setShowClaimBonus(false);
+          navigate("/", { replace: true });
+        }}
+      />
+      {/* NEW: Модалка подтверждения после Claim Bonus */}
+      <ClaimConfirmationModal
+        open={showConfirmation}
+        onOK={() => {
+          setShowConfirmation(false);
+          navigate("/", { replace: true });
+        }}
+      />
+      <EmailNotFoundModal open={showNotFound} onClose={() => setShowNotFound(false)} />
     </div>
   );
 }

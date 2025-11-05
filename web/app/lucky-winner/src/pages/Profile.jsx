@@ -1,58 +1,124 @@
 // src/pages/Profile.jsx
-import { useEffect, useState, useContext } from "react";
+import { useEffect, useState, useContext, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-
 import { AuthCtx } from "../auth/TelegramProvider";
 import { api } from "../api/client";
-import wall from "../assets/Wall.svg";
+// Удалено: import wall from "../assets/Wall.svg";
 import icProfile from "../assets/ic_Profile.svg";
 import setting from "../assets/setting.svg";
 import wincub from "../assets/wincub.svg";
 import Header from "../components/Header";
+import ClaimBonusModal from "../components/ClaimBonusModal";
 
 export default function Profile() {
   const { t } = useTranslation();
-
   const navigate = useNavigate();
   const { token } = useContext(AuthCtx);
 
-  // защита маршрута: без токена — на логин
   useEffect(() => {
     if (!token) navigate("/login", { replace: true });
   }, [token, navigate]);
 
-  const [data, setData] = useState({
-    userId: "askill4831641654",
-    totalWins: 34,
-    winnings: [
-      { n: 1, date: "03.10", amount: "€1200", status: "Win" },
-      { n: 2, date: "08.09", amount: "€900", status: "Win" },
-      { n: 3, date: "08.09", amount: "€900", status: "Win" },
-      { n: 4, date: "08.09", amount: "€900", status: "Win" },
-      { n: 5, date: "08.09", amount: "€900", status: "Win" },
-      { n: 6, date: "08.09", amount: "€900", status: "Win" },
-      { n: 7, date: "08.09", amount: "€900", status: "Win" },
-    ],
-  });
+  const [userId, setUserId] = useState("");
+  const [wins, setWins] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showClaimBonus, setShowClaimBonus] = useState(false);
 
-  const { userId, totalWins, winnings = [] } = data;
+  const CLAIM_AMOUNT = 500;
 
-  // Открыть ссылку во внешнем браузере (Telegram Mini App friendly)
   const openExternal = (url) => {
     const tg = window.Telegram?.WebApp;
     if (tg?.openLink) tg.openLink(url);
     else window.open(url, "_blank", "noopener");
   };
 
+  // Вынесли fetchAll, чтобы можно было вызвать и из onConfirm модалки
+  const fetchAll = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    let me = null;
+    try {
+      // 1) профиль (+ внешний ID из выгрузок)
+      me = await api("/api/me", { token });
+      if (me) {
+        const extId =
+          me.external_id ?? me.ledger_user_id ?? me.auth_user_id ?? me.user_id;
+        if (extId != null) setUserId(String(extId));
+
+        // Показ модалки, если бэкенд выставил флаг
+        if (me?.should_show_claim_denied) {
+          api("/api/claim-denied-ack", { method: "POST", token }).catch(() => {});
+          setShowClaimBonus(true);
+        }
+      }
+
+      // 2) мои выигрыши
+      const my = await api("/api/winners/my", { token });
+      const prepared =
+        (my?.winnings || []).map((w, idx) => ({
+          n: idx + 1,
+          date: new Date(w.computed_at).toLocaleDateString(),
+          amount: `€${w.amount_eur}`,
+          status: "Win",
+          claimed: Boolean(w.claimed ?? w.is_claimed ?? false),
+        })) ?? [];
+      setWins(prepared);
+    } catch (e) {
+      // если токен устарел — на логин
+      navigate("/login", { replace: true });
+    } finally {
+      setLoading(false);
+    }
+  }, [token, navigate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (cancelled) return;
+      await fetchAll();
+    })();
+    return () => { cancelled = true; };
+  }, [fetchAll]);
+
+  const totalWins = wins.length;
+
   return (
-    <div className="min-h-screen bg-[#151515] text-white flex flex-col relative">
-      {/* Фон */}
-      <img
-        src={wall}
-        alt=""
-        className="fixed inset-x-0 top-[-14%] w-full scale-30 object-cover z-0"
-      />
+    <div
+      className="min-h-screen bg-[#151515] text-white flex flex-col relative"
+      // Опционально: мгновенная «заглушка»-фон (LQIP), если сгенерирован wall-lqip.avif
+      style={{
+        backgroundImage: "url(/wall/wall-lqip.avif)",
+        backgroundSize: "cover",
+        backgroundPosition: "50% 0%",
+      }}
+    >
+      {/* Фон: responsive picture (AVIF/WebP/JPG) из public/wall */}
+      <picture>
+        <source
+          type="image/avif"
+          srcSet="/wall/wall-480.avif 480w, /wall/wall-720.avif 720w, /wall/wall-1080.avif 1080w, /wall/wall-1440.avif 1440w"
+          sizes="100vw"
+        />
+        <source
+          type="image/webp"
+          srcSet="/wall/wall-480.webp 480w, /wall/wall-720.webp 720w, /wall/wall-1080.webp 1080w, /wall/wall-1440.webp 1440w"
+          sizes="100vw"
+        />
+        <img
+          src="/wall/wall-1080.jpg"
+          srcSet="/wall/wall-480.jpg 480w, /wall/wall-720.jpg 720w, /wall/wall-1080.jpg 1080w, /wall/wall-1440.jpg 1440w"
+          sizes="100vw"
+          alt=""
+          loading="lazy"
+          fetchpriority="low"
+          decoding="async"
+          className="fixed inset-x-0 top-[-14%] w-full object-cover z-0"
+          // Ранее был кастомный scale-30 — повторяем поведение:
+          style={{ transform: "scale(0.30)", transformOrigin: "top center" }}
+          aria-hidden="true"
+        />
+      </picture>
 
       <Header />
 
@@ -64,6 +130,7 @@ export default function Profile() {
         </h1>
       </div>
 
+      {/* FIX: mt-[10vh] вместо mt={[ "10vh" ]} */}
       <div className="relative z-10 mt-[10vh]">
         {/* User ID + Settings */}
         <div className="pt-4 pb-4">
@@ -71,7 +138,9 @@ export default function Profile() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs opacity-70">{t("userId")}</div>
-                <div className="text-sm font-semibold">{userId}</div>
+                <div className="text-sm font-semibold">
+                  {loading ? "…" : userId || "—"}
+                </div>
               </div>
               <button
                 className="p-2 text-[#FFFE45] bg-transparent"
@@ -103,26 +172,36 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Центрируем Date / Winnings / Status */}
             <div className="overflow-y-auto px-4 -mt-2">
-              <table className="w-full text-[6px] leading-none text-[#8C8C8C]">
+              <table className="w-full table-fixed text-[6px] leading-none text-[#8C8C8C]">
                 <thead>
                   <tr className="text-[#FFFE45]">
-                    <th className="py-[6px] text-left  text-[10px]">{t("number")}</th>
+                    <th className="py-[6px] text-left text-[10px]">{t("number")}</th>
                     <th className="py-[6px] text-center text-[10px]">{t("date")}</th>
                     <th className="py-[6px] text-center text-[10px]">{t("winnings")}</th>
                     <th className="py-[6px] text-center text-[10px]">{t("status")}</th>
+                    <th className="py-[6px] text-center text-[10px]">{t("claimed", "Claimed")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(winnings || []).map((w, i) => (
+                  {(wins || []).map((w, i) => (
                     <tr key={i} className="border-b border-white/10">
                       <td className="py-[6px] text-[10px] text-left">{w.n}</td>
                       <td className="py-[6px] text-[10px] text-center">{w.date}</td>
                       <td className="py-[6px] text-[10px] text-center">{w.amount}</td>
                       <td className="py-[6px] text-[10px] text-center">{w.status}</td>
+                      <td className="py-[6px] text-[10px] text-center">
+                        {w.claimed ? t("yes", "Yes") : t("no", "No")}
+                      </td>
                     </tr>
                   ))}
+                  {!loading && wins.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-3 text-center text-[10px] text-[#8C8C8C]">
+                        {t("noData")}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -149,6 +228,31 @@ export default function Profile() {
           </button>
         </div>
       </div>
+
+      {/* Модалка Claim Bonus */}
+      <ClaimBonusModal
+        open={showClaimBonus}
+        amount={CLAIM_AMOUNT}
+        onConfirm={async () => {
+          try {
+            const r = await api("/api/claim-bonus", {
+              method: "POST",
+              token: localStorage.getItem("jwt") || token,
+              body: { amount: CLAIM_AMOUNT, reason: "claim_denied_bonus" },
+            });
+            if (typeof r?.new_balance === "number") {
+              // TODO: обновить баланс в Header или глобальном состоянии по месту
+            }
+          } catch (e) {
+            console.error("claim-bonus failed", e);
+          } finally {
+            setShowClaimBonus(false);
+            // Перечитать профиль и выигрыши после апдейта
+            fetchAll();
+          }
+        }}
+        onClose={() => setShowClaimBonus(false)}
+      />
     </div>
   );
 }

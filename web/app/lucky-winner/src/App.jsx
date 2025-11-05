@@ -1,3 +1,4 @@
+// /opt/tma-mvp/web/app/lucky-winner/src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import TelegramProvider from "./auth/TelegramProvider";
 import RequireAuth from "./components/RequireAuth";
@@ -11,13 +12,13 @@ import Login from "./pages/Login";
 import Winners from "./pages/Winners";
 import CodeError from "./pages/CodeError";
 import Error403 from "./pages/Error403";
-import ClaimDenied from "./pages/ClaimDenied"; // Added import for new page
+import ClaimDenied from "./pages/ClaimDenied";
 
 import { useEffect } from "react";
 import { setOnUnauthorized } from "./api/client";
 
-import { I18nextProvider } from 'react-i18next';
-import i18n from './i18n';
+import { I18nextProvider } from "react-i18next";
+import i18n from "./i18n";
 
 function GateWrapper({ children }) {
   console.log("Gate bypassed — rendering children");
@@ -109,7 +110,17 @@ function AppInner() {
       />
       <Route path="/error-code" element={<CodeError />} />
       <Route path="/403" element={<Error403 />} />
-      <Route path="/claim-denied" element={<ClaimDenied />} /> {/* Added new route without wrappers */}
+
+      {/* NEW: ClaimDenied только для авторизованных, без Layout/BottomNav */}
+      <Route
+        path="/claim-denied"
+        element={
+          <RequireAuth>
+            <ClaimDenied />
+          </RequireAuth>
+        }
+      />
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

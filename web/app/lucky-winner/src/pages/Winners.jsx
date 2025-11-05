@@ -1,8 +1,9 @@
 // src/pages/Winners.jsx
 import { useState, useEffect, useContext } from "react";
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from "react-i18next";
 
 import { AuthCtx } from "../auth/TelegramProvider";
+import { api } from "../api/client";
 import wall from "../assets/Wall.svg";
 import icWinners from "../assets/ic_Winners.svg";
 import Header from "../components/Header";
@@ -33,55 +34,102 @@ const Tab = ({ active, children, onClick }) => (
   </button>
 );
 
-function genMock(tab) {
-  const rows = [];
-  const conf = {
-    today:     { base: 100, userPrefix: "askill" },
-    yesterday: { base: 80,  userPrefix: "user"   },
-    last7:     { base: 120, userPrefix: "week"   },
-    top10:     { base: 500, userPrefix: "top"    },
-  }[tab] || { base: 100, userPrefix: "user" };
-
-  for (let i = 1; i <= 25; i++) {
-    const isTop = tab === "top10";
-    const multiplier = isTop ? (26 - i) * 100 : (i % 5 + 1) * 10;
-    const amount = conf.base + multiplier + (isTop ? i * 50 : i);
-    const wins = `€${amount.toLocaleString("en-US")}`;
-    const count = isTop ? (i % 5) + 3 : (i % 4) + 1;
-    const user = `${conf.userPrefix}${(1000 + i).toString(36)}****`;
-    rows.push({ n: i, user, count, wins });
-  }
-  return rows;
+function maskEmail(email) {
+  const s = String(email || "");
+  const [name, dom = ""] = s.split("@");
+  const head = name.slice(0, Math.min(3, name.length)).padEnd(3, "*");
+  return `${head}****${dom ? "@" + dom : ""}`;
 }
 
 export default function Winners() {
   const { t } = useTranslation();
-
   const { token } = useContext(AuthCtx);
+
   const [tab, setTab] = useState("today");
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    setLoading(true);
-    const timeoutId = setTimeout(() => {
-      setData(genMock(tab));
-      setLoading(false);
-    }, 400);
-    return () => clearTimeout(timeoutId);
-  }, [tab]);
-
   const tabs = {
-    today: t('today'),
-    yesterday: t('yesterday'),
-    last7: t('last7Days'),
-    top10: t('top10Win')
+    today: t("today"),
+    yesterday: t("yesterday"),
+    last7: t("last7Days"),
+    top10: t("top10Win"),
   };
+
+  // Маппинг вкладки -> диапазон бэкенда (смещаем дни)
+  const rangeForTab = (key) => {
+    switch (key) {
+      case "today":     return "yesterday";   // показываем вчера как "сегодня"
+      case "yesterday": return "day_minus_2"; // позавчера
+      case "last7":     return "last7";
+      case "top10":     return "last7";       // абсолютные топы за 7 дней
+      default:          return "yesterday";
+    }
+  };
+
+  // Сколько строк показывать на вкладке
+  const capForTab = (key) => {
+    if (key === "last7") return 50;
+    if (key === "top10") return 10;
+    return 25; // today/yesterday — по 25
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const range = rangeForTab(tab);
+        // используем уже существующую ручку агрегатов
+        // (/api/winners возвращает массив { email_norm, win_count, win_amount, claimed? })
+        const res = await api(`/api/winners?range=${encodeURIComponent(range)}`);
+        if (cancelled) return;
+
+        let rows = (Array.isArray(res) ? res : []).map((r, i) => {
+          const claimedBool =
+            (typeof r.claimed === "boolean" ? r.claimed : false) ||
+            Boolean(r.claimed_at);
+          const amountNum = Number(r.win_amount ?? 0);
+          return {
+            n: i + 1,
+            user: maskEmail(r.email_norm),
+            count: r.win_count ?? 1,
+            wins: `€${amountNum.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}`,
+            claimed: claimedBool,
+          };
+        });
+
+        // Жёсткий лимит на клиенте (на случай если бэкенд вернёт больше)
+        rows = rows.slice(0, capForTab(tab));
+
+        // Для top10 — на всякий случай отсортируем по сумме убыв.
+        if (tab === "top10") {
+          rows.sort((a, b) => {
+            const av = Number(String(a.wins).replace(/[^\d.]/g, "")) || 0;
+            const bv = Number(String(b.wins).replace(/[^\d.]/g, "")) || 0;
+            return bv - av;
+          });
+        }
+
+        setData(rows);
+      } catch (e) {
+        setData([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-[#151515] text-white flex items-center justify-center">
-        {t('loading')}...
+        {t("loading")}...
       </div>
     );
   }
@@ -89,7 +137,11 @@ export default function Winners() {
   return (
     <div className="min-h-screen bg-[#151515] text-white flex flex-col relative">
       {/* Фон */}
-      <img src={wall} alt="" className="fixed inset-x-0 top-[-14%] w-full scale-30 object-cover z-0" />
+      <img
+        src={wall}
+        alt=""
+        className="fixed inset-x-0 top-[-14%] w-full scale-30 object-cover z-0"
+      />
 
       <Header />
 
@@ -97,7 +149,7 @@ export default function Winners() {
       <div className="relative z-10 px-4 pt-4 pb-2">
         <h1 className="text-3xl font-bold text-white flex items-center gap-2">
           <img src={icWinners} alt="" className="h-9 w-9" />
-          {t('winners')}
+          {t("winners")}
         </h1>
       </div>
 
@@ -122,11 +174,11 @@ export default function Winners() {
           }}
         >
           <div className="overflow-y-auto px-4">
-            <table className="w-full text-[6px] text-[#8C8C8C]">
+            <table className="w-full table-fixed text-[6px] text-[#8C8C8C]">
               <thead>
                 <tr className="text-[#FFFE45]">
-                  <th className="py-2 text-center text-[10px]">{t('number')}</th>
-                  <th className="py-2 text-left   text-[10px]">{t('userId')}</th>
+                  <th className="py-2 text-center text-[10px]">{t("number")}</th>
+                  <th className="py-2 text-left   text-[10px]">{t("userId")}</th>
                   <th className="py-2 text-center text-[10px] leading-tight">
                     <span className="block">Total wins</span>
                     <span className="block">count</span>
@@ -135,19 +187,36 @@ export default function Winners() {
                     <span className="block">Total wins</span>
                     <span className="block">amount</span>
                   </th>
+                  <th className="py-2 text-center text-[10px]">
+                    {t("claimed", "Claimed")}
+                  </th>
                 </tr>
               </thead>
 
               <tbody>
-                {data.map((item, i) => (
-                  <tr key={i} className="border-b border-white/10">
-                    {/* было 20px → стало ~13px */}
-                    <td className="py-2 text-[13px] text-center">{item.n}</td>
-                    <td className="py-2 text-[13px] text-left">{item.user}</td>
-                    <td className="py-2 text-[13px] text-center">{item.count}</td>
-                    <td className="py-2 text-[13px] text-center">{item.wins}</td>
+                {data.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-4 text-center text-[10px]">
+                      {t("noData")}
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  data.map((item, i) => (
+                    <tr key={i} className="border-b border-white/10">
+                      <td className="py-2 text-[13px] text-center">{item.n}</td>
+                      <td className="py-2 text-[13px] text-left truncate">
+                        {item.user}
+                      </td>
+                      <td className="py-2 text-[13px] text-center">
+                        {item.count}
+                      </td>
+                      <td className="py-2 text-[13px] text-center">{item.wins}</td>
+                      <td className="py-2 text-[13px] text-center">
+                        {item.claimed ? t("yes", "Yes") : t("no", "No")}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

@@ -7,9 +7,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-tma}
       POSTGRES_USER: ${POSTGRES_USER:-tma}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tma}
-      DEV_OPEN_GATE: ${DEV_OPEN_GATE:-1}
-      ALLOW_GUESTS: ${ALLOW_GUESTS:-1}
-      DISABLE_INITDATA: ${DISABLE_INITDATA:-1}
     ports:
       - "5432:5432"
     volumes:
@@ -20,11 +17,13 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
 
   api:
     build: ./api
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      # если переменная не задана снаружи — используем внутренний сервис 'db'
+      DATABASE_URL: ${DATABASE_URL:-postgres://tma:tma@db:5432/tma?sslmode=disable}
       GIN_MODE: ${GIN_MODE:-release}
       JWT_SECRET: ${JWT_SECRET}
       JWT_TTL: ${JWT_TTL:-30s}
@@ -35,10 +34,23 @@ services:
       SMTP_PASS: ${SMTP_PASS}
       SMTP_FROM: ${SMTP_FROM}
       BOT_TOKEN: ${BOT_TOKEN}
+
+      # сюда перенёс твои флаги (они относятся к API, не к БД)
+      DEV_OPEN_GATE: ${DEV_OPEN_GATE:-1}
+      ALLOW_GUESTS: ${ALLOW_GUESTS:-1}
+      DISABLE_INITDATA: ${DISABLE_INITDATA:-1}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "8080:8080"
+    restart: on-failure
+    # если в образе есть wget/curl — можно включить healthcheck API:
+    # healthcheck:
+    #   test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/gate >/dev/null 2>&1 || exit 1"]
+    #   interval: 10s
+    #   timeout: 3s
+    #   retries: 10
 
   nginx:
     image: nginx:1.27
@@ -52,6 +64,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    restart: unless-stopped
 
 volumes:
   db_data:

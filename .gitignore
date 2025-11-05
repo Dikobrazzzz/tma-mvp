@@ -1,32 +1,20 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.*
+!*.sample
+# creds/секреты
+*.json
+creds/
+# build/artifacts
+*.log
+*.sqlite
+*.db
+dist/
+build/
+# node (если фронт тут же)
+node_modules/
 # OS
 .DS_Store
 Thumbs.db
-
-# Node/Vite front
-node_modules/
-web/node_modules/
-web/dist/
-*.log
-
-# Go
-api/bin/
-api/vendor/
-*.test
-*.out
-
-# Docker & runtime
-.env
-certbot-etc/
-certbot-web/
-db_data/
-*.pem
-*.crt
-*.key
-
-# IDE
-.vscode/
-.idea/
-
-# Builds
-api/api
-api/.cache/

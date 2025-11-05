@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 
 import { AuthCtx } from "../auth/TelegramProvider";
 import { api } from "../api/client";
-import { clearToken } from "../auth/tokenStore";
+import { clearTokenNoReload, setAutoLoginDisabled } from "../auth/tokenStore"; // ← UPDATED
 
 import wall from "../assets/Wall.svg";
 import icProfile from "../assets/ic_Profile.svg";
@@ -20,27 +20,38 @@ export default function Settings() {
 
   const normalize = (lng) => (lng?.toLowerCase().startsWith("ru") ? "ru" : "en");
 
-  const [data, setData] = useState({ userId: "askill4831641654" });
+  const [userId, setUserId] = useState("");
   const [isLanguageOpen, setIsLanguageOpen] = useState(false);
   const [selectedLang, setSelectedLang] = useState(normalize(i18n.language));
 
+  // грузим профиль из бекенда и берём ID из выгрузок
   useEffect(() => {
-    if (token) {
-      api("/api/profile")
-        .then((responseData) => {
-          if (!responseData || !responseData.email_verified) {
-            navigate("/login");
-            return;
-          }
-          setData((prev) => ({ ...prev, ...responseData }));
-        })
-        .catch(() => navigate("/login"));
-    } else {
-      navigate("/login");
-    }
-  }, [token, navigate]);
+    let cancelled = false;
 
-  const { userId } = data;
+    const fetchMe = async () => {
+      if (!token) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      try {
+        const me = await api("/api/me", { token });
+        if (cancelled) return;
+
+        const extId =
+          me?.external_id ??
+          me?.ledger_user_id ??
+          me?.auth_user_id ??
+          me?.user_id;
+
+        setUserId(extId != null ? String(extId) : "—");
+      } catch {
+        navigate("/login", { replace: true });
+      }
+    };
+
+    fetchMe();
+    return () => { cancelled = true; };
+  }, [token, navigate]);
 
   const panelStyle = useMemo(
     () => ({
@@ -52,12 +63,10 @@ export default function Settings() {
     []
   );
 
-  // ↓ БЫЛО py-3 — стало py-2, чтобы высота Language совпала с English/Russian
   const rowBase = "w-full flex flex-nowrap items-center justify-between px-4 py-2 text-sm";
 
-  // Размер/толщина как у Language (text-sm, обычный вес)
   const itemStyle = (active) => ({
-    fontSize: "14px",  // = text-sm
+    fontSize: "14px",
     background: "transparent",
     color: active ? "#FFFE45" : "#FFFFFF",
     fontWeight: 400,
@@ -76,18 +85,25 @@ export default function Settings() {
   };
 
   const handleLogout = async () => {
-    await clearToken();
+    try {
+      // 1) запретить silent login по initData ЗАРАНЕЕ
+      await setAutoLoginDisabled(true);
+
+      // 2) просим бэкенд убрать refresh-cookie
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    } catch {}
+
+    // 3) очистить локальный access-токен БЕЗ перезагрузки WebView
+    await clearTokenNoReload();
+
+    // 4) обнулить контекст и перейти на /login
     setToken("");
-    navigate("/login");
+    navigate("/login", { replace: true });
   };
 
   return (
     <div className="min-h-screen bg-[#151515] text-white flex flex-col relative">
-      <img
-        src={wall}
-        alt=""
-        className="fixed inset-x-0 top-[-14%] w-full scale-30 object-cover z-0"
-      />
+      <img src={wall} alt="" className="fixed inset-x-0 top-[-14%] w-full scale-30 object-cover z-0" />
       <Header />
 
       <div className="relative z-10 px-4 pt-4 pb-2">
@@ -104,10 +120,9 @@ export default function Settings() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs opacity-70">{t("userId")}</div>
-                <div className="text-sm font-semibold">{userId}</div>
+                <div className="text-sm font-semibold">{userId || "—"}</div>
               </div>
 
-              {/* Back — по центру по вертикали */}
               <button
                 className="ml-auto inline-flex items-center justify-center rounded-3xl px-3 h-8 font-semibold"
                 style={{
@@ -131,30 +146,18 @@ export default function Settings() {
         {/* Language */}
         <div className="w-[90%] mx-auto space-y-4 pb-4">
           <div className="w-full overflow-hidden" style={panelStyle}>
-            {/* Заголовок Language — теперь py-2 */}
-            <div
-              className={`${rowBase} select-none cursor-pointer`}
-              onClick={() => setIsLanguageOpen((v) => !v)}
-            >
+            <div className={`${rowBase} select-none cursor-pointer`} onClick={() => setIsLanguageOpen((v) => !v)}>
               <span className="flex items-center gap-2 min-w-0">
                 <img src={languageIcon} alt="Language" className="h-4 w-4" />
                 <span className="text-white">Language</span>
               </span>
-
-              {/* Увеличенная стрелка справа */}
-              <span
-                className="ml-auto shrink-0 leading-none"
-                style={{ fontSize: "28px", lineHeight: 1 }}
-                aria-hidden
-              >
+              <span className="ml-auto shrink-0 leading-none" style={{ fontSize: "28px", lineHeight: 1 }} aria-hidden>
                 {isLanguageOpen ? "▴" : "▾"}
               </span>
             </div>
 
-            {/* Разделитель — только когда открыт */}
             {isLanguageOpen && <div className="border-t border-white/10" />}
 
-            {/* Контент */}
             <div
               className="transition-all duration-200"
               style={{
@@ -168,7 +171,6 @@ export default function Settings() {
             >
               {isLanguageOpen && (
                 <div className="flex flex-col">
-                  {/* English — такая же высота: py-2 */}
                   <button
                     className="w-full flex items-center py-2 leading-none"
                     style={itemStyle(selectedLang === "en")}
@@ -176,11 +178,7 @@ export default function Settings() {
                   >
                     {t("language.en")}
                   </button>
-
-                  {/* Разделитель до краёв */}
                   <div className="border-t border-white/10 -mx-4" />
-
-                  {/* Russian — такая же высота: py-2 */}
                   <button
                     className="w-full flex items-center py-2 leading-none"
                     style={itemStyle(selectedLang === "ru")}

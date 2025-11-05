@@ -22,7 +22,7 @@ export default function BottomNav() {
   const isProfileActive = pathname.startsWith("/profile") || pathname.startsWith("/login");
   const isWinnersActive = pathname.startsWith("/winners");
 
-  const LIFT_PRESET = "subtle";  
+  const LIFT_PRESET = "subtle";
 
   const LIFT = {
     subtle: { icon: "-translate-y-[2px]", text: "-translate-y-[2px]" },
@@ -30,7 +30,7 @@ export default function BottomNav() {
     high:   { icon: "-translate-y-[7px]", text: "-translate-y-[6px]" },
   }[LIFT_PRESET];
 
-  const ITEM_OFFSET = ""; 
+  const ITEM_OFFSET = "";
 
   const iconCls = (active, key) =>
     `h-6 w-6 mb-1 transition-all ${ITEM_OFFSET} ${
@@ -53,13 +53,16 @@ export default function BottomNav() {
   const onCtaClick = (e) => {
     const tg = window?.Telegram?.WebApp;
     if (tg?.openLink) {
-      e.preventDefault();        
-      tg.openLink(SITE_URL);     
+      e.preventDefault();
+      tg.openLink(SITE_URL);
     }
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-[#1a1a1a]/95 backdrop-blur border-t border-white/10 flex justify-around items-center h-20 z-50 rounded-t-[20px]">
+    <nav
+      data-bottom-nav
+      className="fixed bottom-0 left-0 right-0 bg-[#1a1a1a]/95 border-t border-white/10 flex justify-around items-center h-20 z-[300] rounded-t-[20px]"
+    >
       {/* Terms */}
       <NavLink to="/home" className="flex flex-col items-center py-2 ml-2" aria-current={isTermsActive ? "page" : undefined}>
         <img src={isTermsActive ? termsY : terms} alt="Terms" className={`${iconCls(isTermsActive, "terms")} scale-90`} />
@@ -78,7 +81,7 @@ export default function BottomNav() {
           <TwoLineLabel
             active={isLuckyActive}
             line1={t('luckyWinner').split(' ')[0]}
-            extra={LIFT.text}  
+            extra={LIFT.text}
           />
         </NavLink>
 
