@@ -22,27 +22,57 @@ def _sa_dsn():
     return "postgresql+psycopg://" + d[len("postgresql://"):] if d.startswith("postgresql://") else d
 
 def winners_df_for_day(day_str: str) -> pd.DataFrame:
-    # GGR берём из lw_ledger как суммарный GGR за день по email
     sql = sa.text("""
-        WITH daily_ggr AS (
+        WITH day_rows AS (
             SELECT
                 email_norm,
-                (date_ts AT TIME ZONE 'UTC')::date AS d,   -- нормализуем к дате (UTC)
-                SUM(ggr) AS ggr_sum
+                (date_ts AT TIME ZONE 'UTC')::date AS d,
+                country,
+                ggr
             FROM public.lw_ledger
-            GROUP BY email_norm, (date_ts AT TIME ZONE 'UTC')::date
+        ),
+        daily_ggr AS (
+            SELECT
+                email_norm,
+                d,
+                SUM(COALESCE(ggr,0)) AS ggr_sum
+            FROM day_rows
+            GROUP BY email_norm, d
+        ),
+        country_counts AS (
+            SELECT
+                email_norm,
+                d,
+                country,
+                COUNT(*) AS c
+            FROM day_rows
+            WHERE country IS NOT NULL
+            GROUP BY email_norm, d, country
+        ),
+        daily_country AS (
+            -- берём самую частую страну для email_norm в данном дне
+            SELECT DISTINCT ON (email_norm, d)
+                email_norm,
+                d,
+                country
+            FROM country_counts
+            ORDER BY email_norm, d, c DESC, country ASC
         )
         SELECT
             w.draw_id                             AS "Date",
             w.email_norm                          AS "Email",
             w.user_id                             AS "AccountID",
+            COALESCE(dc.country, NULL)            AS "Country",
             COALESCE(dg.ggr_sum, 0)::float8       AS "GGR",
             w.amount_eur::float8                  AS "Reward",
             (w.claimed_at IS NOT NULL)::bool      AS "Claimed"
         FROM public.lw_winners w
         LEFT JOIN daily_ggr dg
-          ON dg.email_norm = w.email_norm
-         AND dg.d = w.draw_id::date
+               ON dg.email_norm = w.email_norm
+              AND dg.d = w.draw_id::date
+        LEFT JOIN daily_country dc
+               ON dc.email_norm = w.email_norm
+              AND dc.d = w.draw_id::date
         WHERE w.draw_id = :d
         ORDER BY w.amount_eur DESC, w.email_norm
     """)
@@ -50,6 +80,7 @@ def winners_df_for_day(day_str: str) -> pd.DataFrame:
     with eng.connect() as con:
         df = pd.read_sql(sql, con, params={"d": day_str})
     return df
+
 
 # NEW: за «вчера» (UTC)
 def winners_df_yesterday() -> pd.DataFrame:
@@ -103,3 +134,56 @@ def upload_dataframe(spreadsheet_id: str, sheet_title: str, df: pd.DataFrame, cr
         valueInputOption="RAW",
         body=body
     ).execute()
+
+def set_claimed_in_sheet(spreadsheet_id: str, sheet_title: str,
+                         date_str: str, email_norm: str, claimed: bool,
+                         creds_path: str) -> bool:
+    svc = _sheets_service(creds_path)
+
+    # 1) читаем лист
+    resp = svc.spreadsheets().values().get(
+        spreadsheetId=spreadsheet_id, range=f"{sheet_title}!A:ZZ"
+    ).execute()
+    values = resp.get("values", [])
+    if not values:
+        return False
+
+    header = [c.strip() for c in values[0]]
+    rows = values[1:]
+
+    # 2) индексы нужных колонок
+    def col_idx(name: str) -> int:
+        try:
+            return header.index(name)
+        except ValueError:
+            return -1
+
+    i_date = col_idx("Date")
+    i_email = col_idx("Email")
+    i_claim = col_idx("Claimed")
+    if min(i_date, i_email, i_claim) < 0:
+        return False
+
+    # 3) ищем нужную строку (по точному совпадению даты YYYY-MM-DD и email_norm в нижнем регистре)
+    target_row_idx = None
+    email_norm_l = (email_norm or "").strip().lower()
+    for ridx, r in enumerate(rows, start=2):  # старт с 2, т.к. A1 – заголовок
+        d = (r[i_date] if i_date < len(r) else "").strip()
+        e = (r[i_email] if i_email < len(r) else "").strip().lower()
+        if d == date_str and e == email_norm_l:
+            target_row_idx = ridx
+            break
+
+    if not target_row_idx:
+        return False
+
+    # 4) пишем Yes/No
+    val = "Yes" if claimed else "No"
+    rng = f"{sheet_title}!{chr(ord('A') + i_claim)}{target_row_idx}"
+    svc.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=rng,
+        valueInputOption="RAW",
+        body={"values": [[val]]}
+    ).execute()
+    return True

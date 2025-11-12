@@ -1,7 +1,7 @@
+//opt/tma-mvp/web/app/lucky-winner/src/components/BottomNav.jsx
 // src/components/BottomNav.jsx
 import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from 'react-i18next';
-
 import lucky from "../assets/Lucky.svg";
 import luckyY from "../assets/Lucky-y.svg";
 import terms from "../assets/Terms-2.svg";
@@ -11,35 +11,26 @@ import profileY from "../assets/Profile-y.svg";
 import icWinners from "../assets/ic_Winners.svg";
 import winnersY from "../assets/Winners-y.svg";
 import cta from "../assets/CTA.svg";
-
 export default function BottomNav() {
   const { t } = useTranslation();
-
   const { pathname } = useLocation();
-
-  const isLuckyActive   = pathname === "/" || pathname.startsWith("/lucky");
-  const isTermsActive   = pathname.startsWith("/home");
+  const isLuckyActive = pathname === "/" || pathname.startsWith("/lucky");
+  const isTermsActive = pathname.startsWith("/home");
   const isProfileActive = pathname.startsWith("/profile") || pathname.startsWith("/login");
   const isWinnersActive = pathname.startsWith("/winners");
-
   const LIFT_PRESET = "subtle";
-
   const LIFT = {
     subtle: { icon: "-translate-y-[2px]", text: "-translate-y-[2px]" },
     medium: { icon: "-translate-y-[4px]", text: "-translate-y-[3px]" },
-    high:   { icon: "-translate-y-[7px]", text: "-translate-y-[6px]" },
+    high: { icon: "-translate-y-[7px]", text: "-translate-y-[6px]" },
   }[LIFT_PRESET];
-
   const ITEM_OFFSET = "";
-
   const iconCls = (active, key) =>
     `h-6 w-6 mb-1 transition-all ${ITEM_OFFSET} ${
       active ? "" : `grayscale opacity-60 ${key === "lucky" ? "brightness-105" : ""}`
     }`;
-
   const textCls = (active) =>
     `text-xs ${ITEM_OFFSET} ${active ? "text-white" : "text-white/60"}`;
-
   const TwoLineLabel = ({ active, line1, line2Hidden = false, extra = "" }) => (
     <div className={`flex flex-col items-center leading-tight ${textCls(active)} ${extra}`}>
       <span>{line1}</span>
@@ -48,7 +39,6 @@ export default function BottomNav() {
       </span>
     </div>
   );
-
   const SITE_URL = "https://win888strazci.com/en";
   const onCtaClick = (e) => {
     const tg = window?.Telegram?.WebApp;
@@ -57,7 +47,6 @@ export default function BottomNav() {
       tg.openLink(SITE_URL);
     }
   };
-
   return (
     <nav
       data-bottom-nav
@@ -68,7 +57,6 @@ export default function BottomNav() {
         <img src={isTermsActive ? termsY : terms} alt="Terms" className={`${iconCls(isTermsActive, "terms")} scale-90`} />
         <TwoLineLabel active={isTermsActive} line1={t('terms')} line2Hidden />
       </NavLink>
-
       {/* Центр: Lucky + CTA + Profile */}
       <div className="flex items-center gap-4">
         {/* Lucky (с подъёмом) */}
@@ -84,7 +72,6 @@ export default function BottomNav() {
             extra={LIFT.text}
           />
         </NavLink>
-
         {/* CTA — обычная ссылка; без рамок/фонов/квадратов */}
         <a
           href={SITE_URL}
@@ -102,14 +89,12 @@ export default function BottomNav() {
             draggable="false"
           />
         </a>
-
         {/* Profile */}
         <NavLink to="/profile" className="flex flex-col items-center py-2" aria-current={isProfileActive ? "page" : undefined}>
           <img src={isProfileActive ? profileY : icProfile} alt="Profile" className={iconCls(isProfileActive, "profile")} />
           <TwoLineLabel active={isProfileActive} line1={t('profile')} line2Hidden />
         </NavLink>
       </div>
-
       {/* Winners */}
       <NavLink to="/winners" className="flex flex-col items-center py-2 mr-2" aria-current={isWinnersActive ? "page" : undefined}>
         <img src={isWinnersActive ? winnersY : icWinners} alt="Winners" className={iconCls(isWinnersActive, "winners")} />

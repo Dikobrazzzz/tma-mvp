@@ -1,86 +1,79 @@
 // src/auth/TelegramProvider.jsx
-import { createContext, useEffect, useMemo, useState } from "react";
-import {
-  getToken,
-  setToken as saveToken,
-  clearToken,
-  isExpired,
-  isAutoLoginDisabled,   // ⬅️ NEW
-} from "./tokenStore";
-import { refreshAccess } from "../api/client";
+import React, { createContext, useCallback, useEffect, useMemo, useState } from "react";
+import { flushSync } from "react-dom";
+import { getToken, setToken as storeSetToken, clearTokenNoReload } from "./tokenStore";
 
-export const AuthCtx = createContext({ token: null, loading: true, setToken: () => {} });
+export const AuthCtx = createContext({
+  token: null,
+  setToken: (_t) => {},
+  logout: () => {},
+  loading: true,
+});
+
+async function refreshAccessToken() {
+  try {
+    const res = await fetch("/api/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    return typeof data?.token === "string" ? data.token : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function TelegramProvider({ children }) {
-  const [token, setTokenState] = useState("");
+  const [token, _setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // 1) холодный старт: подтянуть токен из tokenStore
   useEffect(() => {
-    const tg = window.Telegram?.WebApp;
-    tg?.ready();
-    tg?.expand();
-
     (async () => {
-      // 1) Берём локальный токен (CloudStorage/LS)
-      let t = await getToken();
-
-      // 2) Если пустой или просрочен — пробуем /api/auth/refresh (по HttpOnly cookie)
-      if (!t || isExpired(t)) {
-        const rTok = await refreshAccess();
-        if (rTok) {
-          t = rTok;
-          await saveToken(t);
-        } else if (window?.Telegram?.WebApp?.initData) {
-          // 3) Тихий логин по Telegram initData (кросс-девайс SSO внутри Telegram) — только если не запрещён
-          const disabled = await isAutoLoginDisabled();
-          if (!disabled) {
-            try {
-              const resp = await fetch("/api/auth/tg-init", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ init_data: window.Telegram.WebApp.initData }),
-              });
-              if (resp.ok) {
-                const j = await resp.json().catch(() => ({}));
-                const newTok = j?.token || "";
-                if (newTok) {
-                  t = newTok;
-                  await saveToken(t);
-                } else {
-                  await clearToken();
-                  t = "";
-                }
-              } else {
-                await clearToken();
-                t = "";
-              }
-            } catch {
-              await clearToken();
-              t = "";
-            }
-          } else {
-            // автологин отключён — остаёмся без токена
-            await clearToken();
-            t = "";
-          }
-        } else {
-          // 4) Не в Telegram или initData недоступен — очищаем локальное
-          await clearToken();
-          t = "";
-        }
-      }
-
-      setTokenState(t || "");
+      const stored = await getToken();
+      _setToken(stored || null);
       setLoading(false);
     })();
   }, []);
 
-  const setToken = async (t) => {
-    setTokenState(t || "");
-    await saveToken(t || "");
-  };
+  // 2) централизованная запись токена
+  const setToken = useCallback(async (next) => {
+    flushSync(() => _setToken(next || null));
+    await storeSetToken(next || "");
+  }, []);
 
-  const value = useMemo(() => ({ token, setToken, loading }), [token, loading]);
+  // 3) logout
+  const logout = useCallback(async () => {
+    await setToken(null);
+    await clearTokenNoReload();
+    fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
+  }, [setToken]);
+
+  // 4) Telegram WebApp UX
+  useEffect(() => {
+    const tg = window?.Telegram?.WebApp;
+    if (!tg) return;
+    try { tg.ready?.(); tg.expand?.(); } catch {}
+  }, []);
+
+  // 5) фоновый refresh (мягкий)
+  useEffect(() => {
+    let stop = false;
+    async function tick() {
+      const sleepMs = token ? 15 * 60 * 1000 : 3 * 60 * 1000;
+      try {
+        const fresh = await refreshAccessToken();
+        if (fresh) await setToken(fresh);
+      } catch {}
+      if (!stop) setTimeout(tick, sleepMs);
+    }
+    const id = setTimeout(tick, 2500);
+    return () => { stop = true; clearTimeout(id); };
+  }, [token, setToken]);
+
+  const value = useMemo(() => ({ token, setToken, logout, loading }), [token, setToken, logout, loading]);
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }

@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 load_dotenv(os.getenv("ENVFILE", "/opt/tma-mvp/jobs/.env.import"))
 
 # --- ENV ---
+LW_FALLBACK_METRIC = os.getenv("LW_FALLBACK_METRIC", "").strip().lower()
 GSHEET_ID    = os.getenv("LW_GSHEET_ID")
 GSHEET_TAB   = os.getenv("LW_GSHEET_TAB", "report")
 GSHEET_CREDS = os.getenv("LW_GSHEET_CREDS", "/opt/tma-mvp/creds/sa_gsheets.json")
@@ -37,11 +38,41 @@ def _norm_email(x):
     return x or None
 
 def _parse_num(x):
-    if x is None or str(x).strip()=="":
+    """
+    Robust parser for localized numbers:
+    - нормализует юникод-минус (U+2212) в '-'
+    - убирает любые пробелы, NBSP (U+00A0) и узкий NBSP (U+202F)
+    - вычищает всё, кроме цифр, минуса, точки и запятой
+    - корректно обрабатывает '1.234,56', '1,234.56', '-4,54' и т.п.
+    """
+    if x is None:
         return None
-    s = str(x).strip().replace(" ", "").replace(",", ".")
-    try: return float(s)
-    except: return None
+    s = str(x).strip()
+    if s == "":
+        return None
+
+    s = s.replace("\u2212", "-")                    # U+2212 → '-'
+    s = re.sub(r"[\s\u00A0\u202F]", "", s)          # удалить все пробелы/NBSP
+    s = re.sub(r"[^0-9\-\.,]", "", s)               # оставить цифры, -, . , 
+
+    if s.count(",") == 1 and s.count(".") == 0:
+        # 12,34 -> 12.34
+        s = s.replace(",", ".")
+    elif s.count(".") == 1 and s.count(",") >= 1:
+        # 1,234.56 -> 1234.56
+        s = s.replace(",", "")
+    elif s.count(",") > 1 and s.count(".") == 0:
+        # 1,234,56 -> 1234.56
+        parts = s.split(","); s = "".join(parts[:-1]) + "." + parts[-1]
+    elif s.count(".") > 1 and s.count(",") == 0:
+        # 1.234.56 -> 1234.56
+        parts = s.split("."); s = "".join(parts[:-1]) + "." + parts[-1]
+
+    try:
+        return float(s)
+    except:
+        return None
+
 
 def _parse_dt_utc(x):
     if x is None or str(x).strip()=="":
@@ -72,7 +103,9 @@ def read_sheet() -> pd.DataFrame:
     )
     svc = build("sheets", "v4", credentials=creds, cache_discovery=False)
     resp = svc.spreadsheets().values().get(
-        spreadsheetId=GSHEET_ID, range=f"{GSHEET_TAB}!A:Z"
+        spreadsheetId=GSHEET_ID,
+        range=f"{GSHEET_TAB}!A:Z",
+        valueRenderOption="UNFORMATTED_VALUE"
     ).execute()
     values = resp.get("values", [])
     if not values: return pd.DataFrame()
@@ -95,8 +128,17 @@ def read_sheet() -> pd.DataFrame:
     df["deposit_amount"] = df["Deposit Amount"].map(_parse_num)
     df["src_file"]       = SRC_DEFAULT
 
+    # Фильтры по обязательным полям
     df = df[(df["user_id"].notna()) & (df["user_id"]!=0) &
             (df["email_norm"].notna()) & (df["date_ts"].notna())]
+
+    # ---- Fallback: если указано LW_FALLBACK_METRIC=inout, подставляем inout в ggr там, где ggr пуст/0
+    if LW_FALLBACK_METRIC == "inout":
+        ggr_before = df["ggr"].copy()
+        mask = (df["ggr"].isna()) | (df["ggr"] == 0)
+        df.loc[mask & df["inout"].notna(), "ggr"] = df.loc[mask, "inout"]
+        replaced = int(((ggr_before != df["ggr"]) & mask).sum())
+        print(f"[fallback] ggr<-inout: replaced={replaced}")
 
     # Диапазон: по умолчанию — вчера UTC
     if LW_FROM or LW_TO:
@@ -159,20 +201,16 @@ def upsert_fallback(conn, df: pd.DataFrame):
     Это немного медленнее, но просто и надёжно.
     """
     rows = [tuple(r) for r in df.itertuples(index=False, name=None)]
-    # 1) удалить существующие строки с такими ключами
     with conn.cursor() as cur:
-        # бьём на пачки, чтобы не делать слишком длинный IN (...)
         BATCH = 1000
         for i in range(0, len(rows), BATCH):
             keys = [(r[0], r[2]) for r in rows[i:i+BATCH]]  # (user_id, date_ts)
-            # динамически построим плейсхолдеры (%s,%s),(%s,%s),...
             ph = ",".join(["(%s,%s)"] * len(keys))
             params = [v for pair in keys for v in pair]
             cur.execute(f"""
                 DELETE FROM public.lw_ledger
                  WHERE (user_id, date_ts) IN ({ph});
             """, params)
-        # 2) вставить все строки
         cur.executemany("""
             INSERT INTO public.lw_ledger
                 (user_id,email_norm,date_ts,country,ggr,inout,turnover,deposit_amount,src_file)

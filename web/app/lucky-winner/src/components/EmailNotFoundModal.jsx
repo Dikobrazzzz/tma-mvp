@@ -1,7 +1,20 @@
 // src/components/EmailNotFoundModal.jsx
-import React from "react";
-export default function EmailNotFoundModal({ open, onClose }) {
+import React, { useEffect } from "react";
+
+export default function EmailNotFoundModal({ open, email, onClose }) {
+  // Отправляем факт показа модалки на бэкенд
+  useEffect(() => {
+    if (!open || !email) return;
+    fetch("/api/analytics/email-not-found", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ email }),
+    }).catch(() => {});
+  }, [open, email]);
+
   if (!open) return null;
+
   return (
     <>
       {/* Затемняет/блюрит только контент под ним. Header/BottomNav выше, поэтому не блюрятся и не затемняются. */}
@@ -9,6 +22,7 @@ export default function EmailNotFoundModal({ open, onClose }) {
         className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm pointer-events-none"
         aria-hidden="true"
       />
+
       {/* Поп-ап поверх всего — делаем прозрачным для событий */}
       <div className="fixed inset-0 z-[400] flex items-center justify-center px-4 pointer-events-none">
         <div
@@ -22,7 +36,7 @@ export default function EmailNotFoundModal({ open, onClose }) {
           aria-modal="true"
           aria-labelledby="email-not-found-title"
         >
-          {/* Кнопка закрытия — без оранжевого прямоугольника/outline вообще */}
+          {/* Кнопка закрытия — без оранжевого прямоугольника/outline */}
           <button
             type="button"
             onClick={onClose}
@@ -34,21 +48,11 @@ export default function EmailNotFoundModal({ open, onClose }) {
               outline-none focus:outline-none focus-visible:outline-none
               ring-0 focus:ring-0 hover:ring-0
               hover:opacity-90 active:opacity-80
-              select-none
-              appearance-none
-              text-[#676c70]
+              select-none appearance-none text-[#676c70]
             "
-            style={{
-              WebkitTapHighlightColor: "transparent",
-              outline: "none",
-            }}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              e.currentTarget.blur();
-            }}
-            onFocus={(e) => {
-              e.currentTarget.blur();
-            }}
+            style={{ WebkitTapHighlightColor: "transparent", outline: "none" }}
+            onMouseDown={(e) => { e.preventDefault(); e.currentTarget.blur(); }}
+            onFocus={(e) => { e.currentTarget.blur(); }}
           >
             <svg
               width="18"
@@ -66,6 +70,7 @@ export default function EmailNotFoundModal({ open, onClose }) {
               />
             </svg>
           </button>
+
           <div className="text-center mt-2 flex flex-col grow">
             <div>
               <h2 id="email-not-found-title" className="text-xl font-semibold leading-snug">
@@ -75,6 +80,7 @@ export default function EmailNotFoundModal({ open, onClose }) {
                 If you registered recently,<br />please try again later.
               </p>
             </div>
+
             <div className="mt-auto pt-10">
               <div className="text-[10px] text-white/60 mb-1">
                 Need personalized support?

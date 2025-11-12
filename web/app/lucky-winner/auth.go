@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"log"
 )
 
 type Claims struct {
@@ -60,12 +61,14 @@ func AuthRequired() gin.HandlerFunc {
 			return []byte(os.Getenv("JWT_SECRET")), nil
 		})
 		if err != nil || !token.Valid {
+			log.Printf("Invalid token: %v", err)
 			c.AbortWithStatusJSON(401, gin.H{"error": "invalid token"})
 			return
 		}
 
 		// Доп.проверка exp (jwt.ParseWithClaims это делает, но оставим явно)
 		if claims.ExpiresAt != nil && time.Now().After(claims.ExpiresAt.Time) {
+			log.Printf("Token expired for user %d", claims.UserID)
 			c.AbortWithStatusJSON(401, gin.H{"error": "token expired"})
 			return
 		}

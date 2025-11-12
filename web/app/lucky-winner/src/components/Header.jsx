@@ -1,3 +1,4 @@
+//opt/tma-mvp/web/app/lucky-winner/src/components/Header.jsx
 // src/components/Header.jsx
 import { useContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";

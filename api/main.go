@@ -1,18 +1,17 @@
-// /opt/tma-mvp/api/main.go
 package main
 
 import (
-        "strconv"
-	"database/sql"
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
-        "net/http"
 	"net/smtp"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,15 +24,13 @@ type Server struct {
 	DB *pgxpool.Pool
 }
 
-func normalizeEmail(s string) string {
-	return strings.ToLower(strings.TrimSpace(s))
-}
+func normalizeEmail(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
-// helper: границы дат по табу (UTC)
+// --- date helpers ------------------------------------------------------------
+
 func dateBoundsForRange(r string) (time.Time, time.Time) {
 	now := time.Now().UTC()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-
 	switch r {
 	case "today":
 		return today, today.AddDate(0, 0, 1)
@@ -41,16 +38,33 @@ func dateBoundsForRange(r string) (time.Time, time.Time) {
 		y := today.AddDate(0, 0, -1)
 		return y, today
 	case "last7":
-		start := today.AddDate(0, 0, -6) // 7 дней включая сегодня
+		start := today.AddDate(0, 0, -6)
 		return start, today.AddDate(0, 0, 1)
 	case "top10":
-		// последние 30 дней
 		start := today.AddDate(0, 0, -29)
 		return start, today.AddDate(0, 0, 1)
 	default:
 		return today, today.AddDate(0, 0, 1)
 	}
 }
+
+func completedBoundsForRange(rng string, now time.Time) (time.Time, time.Time) {
+	todayUTC := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	switch rng {
+	case "today":
+		return todayUTC.AddDate(0, 0, -1), todayUTC
+	case "yesterday":
+		return todayUTC.AddDate(0, 0, -2), todayUTC.AddDate(0, 0, -1)
+	case "last7":
+		return todayUTC.AddDate(0, 0, -7), todayUTC
+	case "top10":
+		return todayUTC.AddDate(0, 0, -7), todayUTC
+	default:
+		return todayUTC.AddDate(0, 0, -7), todayUTC
+	}
+}
+
+// --- main --------------------------------------------------------------------
 
 func main() {
 	ctx := context.Background()
@@ -60,7 +74,6 @@ func main() {
 	}
 	defer pool.Close()
 
-	// миграции: users.balance + wallet_ledger (+ winners extras)
 	if err := runMigrations(ctx, pool); err != nil {
 		log.Fatalf("migrations failed: %v", err)
 	}
@@ -74,122 +87,223 @@ func main() {
 
 	api := r.Group("/api")
 	{
-		// Публичные (без JWT)
+		// Публичные
 		api.GET("/gate", s.GatePublic)
 		api.GET("/user", s.UserPublic)
+
 		api.POST("/auth/exists", s.AuthExists)
 		api.POST("/verify/send", s.VerifySend)
 		api.POST("/verify/check", s.VerifyCheck)
-		api.POST("/auth/refresh", s.Refresh)          // предполагается реализованным где-то в коде
+                api.POST("/analytics/email-not-found", s.EmailNotFoundShown)
+
+		// уже есть в твоих файлах
+		api.POST("/auth/tg-init", s.TgInitLogin)
+		api.POST("/auth/refresh", s.Refresh)
+		api.POST("/auth/logout", s.Logout)
+
 		api.GET("/winners/latest", s.WinnersLatest)
-		api.POST("/auth/tg-init", s.TgInitLogin)      // предполагается реализованным где-то в коде
- 		api.GET("/winners", s.WinnersAgg)             // NEW: агрегаты для Winners.jsx
-                api.POST("/auth/logout", s.Logout)
+		api.GET("/winners", s.WinnersAgg)
 
-		// Защищённые — требуется Bearer JWT (твоя реализация AuthRequired)
+		// Защищённые
 		auth := api.Group("/")
-		auth.Use(AuthRequired()) // предполагается реализованным где-то в коде
+		auth.Use(AuthRequired()) // из твоего auth.go
 		auth.GET("/profile", s.ProfileProtected)
-		auth.GET("/winners/my", s.WinnersMy)
 
-		// профиль + баланс + флаг модалки
 		auth.GET("/me", s.MeProtected)
-		// ACK показа ClaimDenied
+		auth.GET("/winners/my", s.WinnersMy)
+		auth.POST("/winners/claim", s.WinnersClaim)
+
 		auth.POST("/claim-denied-ack", s.ClaimDeniedAck)
-		// начисление бонуса в кошелёк
 		auth.POST("/claim-bonus", s.ClaimBonus)
 	}
 
 	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	log.Printf("Starting server on port %s", port)
+	if port == "" { port = "8080" }
+	log.Printf("Starting server on :%s", port)
 	if err := r.Run(":" + port); err != nil {
 		panic(err)
 	}
 }
 
-// --- MIGRATIONS: users.balance + wallet_ledger (+ winners extras) -------------
+// --- migrations --------------------------------------------------------------
 
 func runMigrations(ctx context.Context, db *pgxpool.Pool) error {
-	// 1) users.balance
+	// winners extras + индексы
+	if _, err := db.Exec(ctx, `
+		ALTER TABLE IF EXISTS public.lw_winners
+		  ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
+		CREATE INDEX IF NOT EXISTS lw_winners_email_comp_rank
+		  ON public.lw_winners (email_norm, computed_at DESC, rank ASC);
+		CREATE INDEX IF NOT EXISTS lw_winners_email_claimed_null
+		  ON public.lw_winners (email_norm) WHERE claimed_at IS NULL;
+	`); err != nil {
+		return fmt.Errorf("winners extras: %w", err)
+	}
+
+	// одноразовый флаг показа модалки (по email_norm)
+	if _, err := db.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS claim_denied_oneoff (
+			email_norm CITEXT PRIMARY KEY,
+			shown_at   TIMESTAMPTZ
+		);
+	`); err != nil {
+		return fmt.Errorf("claim_denied_oneoff: %w", err)
+	}
+
+	// safety: users.balance (если пригодится)
 	if _, err := db.Exec(ctx, `
 		ALTER TABLE IF EXISTS users
 		ADD COLUMN IF NOT EXISTS balance NUMERIC(12,2) NOT NULL DEFAULT 0
 	`); err != nil {
-		return fmt.Errorf("add users.balance: %w", err)
+		return fmt.Errorf("users.balance: %w", err)
 	}
 
-	// 2) wallet_ledger — история операций по балансу
+	// аналитика логинов/модалок
 	if _, err := db.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS wallet_ledger (
-			id          BIGSERIAL PRIMARY KEY,
-			user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			amount_eur  NUMERIC(12,2) NOT NULL,
-			reason      TEXT,
-			created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-		);
-		CREATE INDEX IF NOT EXISTS idx_wallet_ledger_user_created
-			ON wallet_ledger (user_id, created_at DESC);
-	`); err != nil {
-		return fmt.Errorf("create wallet_ledger: %w", err)
-	}
+	  CREATE TABLE IF NOT EXISTS auth_login_events (
+	    id          bigserial PRIMARY KEY,
+	    ts          timestamptz NOT NULL DEFAULT now(),
+	    email_norm  citext      NOT NULL,
+	    user_id     bigint,
+	    event_type  text        NOT NULL, -- 'login_ok' | 'email_not_found_modal' | 'email_check_not_allowed' | 'otp_send_ok' | 'otp_send_fail'
+	    source      text,                 -- 'tma', 'web', 'api', ...
+	    ip          inet,
+	    user_agent  text,
+	    extra       jsonb       NOT NULL DEFAULT '{}'::jsonb
+	  );
 
-	// 3) не критично: индекс для claim_denied_oneoff (если таблица есть)
-	if _, err := db.Exec(ctx, `
-		DO $$
-		BEGIN
-			IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-					   WHERE n.nspname='public' AND c.relname='claim_denied_oneoff') THEN
-				IF NOT EXISTS (
-					SELECT 1 FROM pg_indexes
-					WHERE schemaname='public' AND indexname='idx_claim_denied_oneoff_user_email'
-				) THEN
-					CREATE INDEX idx_claim_denied_oneoff_user_email
-						ON claim_denied_oneoff (user_id, email_norm, shown_at);
-				END IF;
-			END IF;
-		END $$;
+	  CREATE INDEX IF NOT EXISTS ale_ts_idx        ON auth_login_events (ts DESC);
+	  CREATE INDEX IF NOT EXISTS ale_email_idx     ON auth_login_events (email_norm);
+	  CREATE INDEX IF NOT EXISTS ale_type_idx      ON auth_login_events (event_type);
+	  CREATE INDEX IF NOT EXISTS ale_email_type_ts ON auth_login_events (email_norm, event_type, ts DESC);
 	`); err != nil {
-		log.Printf("optional index on claim_denied_oneoff: %v", err)
-	}
-
-	// 4) winners: claimed_at + индекс по email_norm
-	if _, err := db.Exec(ctx, `
-		ALTER TABLE IF EXISTS public.lw_winners
-		  ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
-		CREATE INDEX IF NOT EXISTS lw_winners_email_idx
-		  ON public.lw_winners(email_norm);
-	`); err != nil {
-		return fmt.Errorf("winners extras: %w", err)
+		return fmt.Errorf("auth_login_events: %w", err)
 	}
 
 	return nil
 }
 
-// --- PUBLIC ------------------------------------------------------------------
+
+// --- helpers -----------------------------------------------------------------
+
+// Единообразно достаём подтверждённый email_norm:
+// 1) users.email, если email_verified_at не NULL
+// 2) auth_emails (последний) — fallback
+// 3) lw_ledger (последний по времени) — крайний fallback
+// Получаем email_norm: auth_emails → users.email → последний из lw_ledger
+func getEmailNormFromCtxOrDB(c *gin.Context, db *pgxpool.Pool) (string, error) {
+	// 0) Если мидлварь уже положила email_norm
+	if v, ok := c.Get("email_norm"); ok {
+		if s, ok2 := v.(string); ok2 && s != "" {
+			return strings.ToLower(strings.TrimSpace(s)), nil
+		}
+	}
+
+	var uid int64
+	if v, ok := c.Get("user_id"); ok {
+		if u, ok2 := v.(int64); ok2 {
+			uid = u
+		}
+	}
+	if uid == 0 {
+		return "", errors.New("no_user")
+	}
+
+	// 1) auth_emails
+	var em string
+	_ = db.QueryRow(c, `
+		SELECT lower(email_norm)::text
+		FROM auth_emails
+		WHERE user_id = $1
+		ORDER BY id DESC
+		LIMIT 1
+	`, uid).Scan(&em)
+	if em != "" {
+		return em, nil
+	}
+
+	// 2) users.email
+	_ = db.QueryRow(c, `
+		SELECT lower(email)::text
+		FROM users
+		WHERE id = $1
+		  AND email IS NOT NULL AND email <> ''
+	`, uid).Scan(&em)
+	if em != "" {
+		return em, nil
+	}
+
+	// 3) последний email из lw_ledger для этого user_id (как крайний fallback)
+	_ = db.QueryRow(c, `
+		SELECT lower(email_norm)::text
+		FROM lw_ledger
+		WHERE user_id = $1
+		  AND email_norm IS NOT NULL
+		ORDER BY date_ts DESC NULLS LAST, loaded_at DESC NULLS LAST
+		LIMIT 1
+	`, uid).Scan(&em)
+	if em != "" {
+		return em, nil
+	}
+
+	return "", errors.New("no_email_norm")
+}
+
+
+// --- public ------------------------------------------------------------------
+
+func (s *Server) EmailNotFoundShown(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required,email"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"ok": false})
+		return
+	}
+	email := normalizeEmail(req.Email)
+	logLoginEvent(c, s.DB, email, nil, "email_not_found_modal", "tma", nil)
+	c.JSON(200, gin.H{"ok": true})
+}
+
 
 func (s *Server) GatePublic(c *gin.Context) {
 	c.JSON(200, gin.H{"blocked": false, "seconds_left": 0})
-	// last_seen (MVP tg_id=1)
-	_, err := s.DB.Exec(c, `
+	// для last_seen (пример)
+	_, _ = s.DB.Exec(c, `
 		INSERT INTO users(tg_id) VALUES(1)
 		ON CONFLICT (tg_id) DO UPDATE SET last_seen_at = NOW()
 	`)
-	if err != nil {
-		log.Printf("DB log error: %v", err)
-	}
 }
 
 func (s *Server) UserPublic(c *gin.Context) {
 	c.JSON(200, gin.H{"tg_id": 1})
 }
 
-func (s *Server) AuthExists(c *gin.Context) {
-	var req struct {
-		Email string `json:"email"`
+func logLoginEvent(c *gin.Context, db *pgxpool.Pool, email string, userID *int64, eventType, source string, extra map[string]any) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" || eventType == "" {
+		return
 	}
+	ua := c.Request.UserAgent()
+	ip := c.ClientIP()
+	var uid *int64
+	if userID != nil && *userID > 0 {
+		uid = userID
+	}
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	b, _ := json.Marshal(extra)
+
+	_, _ = db.Exec(c, `
+	  INSERT INTO auth_login_events (email_norm, user_id, event_type, source, ip, user_agent, extra)
+	  VALUES ($1, $2, $3, $4, NULLIF($5,'')::inet, $6, $7::jsonb)
+	`, email, uid, eventType, source, ip, ua, string(b))
+}
+
+
+func (s *Server) AuthExists(c *gin.Context) {
+	var req struct{ Email string `json:"email"` }
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"exists": false, "error": "bad request"})
 		return
@@ -199,7 +313,6 @@ func (s *Server) AuthExists(c *gin.Context) {
 		c.JSON(200, gin.H{"exists": false})
 		return
 	}
-
 	var exists bool
 	if err := s.DB.QueryRow(c,
 		`SELECT EXISTS(SELECT 1 FROM auth_emails WHERE email_norm = $1)`,
@@ -209,13 +322,20 @@ func (s *Server) AuthExists(c *gin.Context) {
 		c.JSON(500, gin.H{"exists": false, "error": "db error"})
 		return
 	}
+
+	// если не разрешён — логируем факт проверки и отказа
+	if !exists {
+		logLoginEvent(c, s.DB, email, nil, "email_check_not_allowed", "tma", map[string]any{
+			"when": "before_send_code",
+		})
+	}
+
 	c.JSON(200, gin.H{"exists": exists})
 }
 
+
 func (s *Server) VerifySend(c *gin.Context) {
-	var req struct {
-		Email string `json:"email" binding:"required,email"`
-	}
+	var req struct{ Email string `json:"email" binding:"required,email"` }
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "Invalid email"})
 		return
@@ -225,14 +345,12 @@ func (s *Server) VerifySend(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "Invalid email"})
 		return
 	}
-
-	// email в белом списке
+	// белый список
 	var allowed bool
 	if err := s.DB.QueryRow(c,
 		`SELECT EXISTS(SELECT 1 FROM auth_emails WHERE email_norm = $1)`,
 		email,
 	).Scan(&allowed); err != nil {
-		log.Printf("verify.send exists error: %v", err)
 		c.JSON(500, gin.H{"error": "DB error"})
 		return
 	}
@@ -241,21 +359,17 @@ func (s *Server) VerifySend(c *gin.Context) {
 		return
 	}
 
-	// MVP: tg_id=1, создаём пользователя при необходимости
+	// MVP: tg_id=1 → обеспечим users.id
 	tgID := int64(1)
 	var userID int64
-	err := s.DB.QueryRow(c, "SELECT id FROM users WHERE tg_id = $1", tgID).Scan(&userID)
+	err := s.DB.QueryRow(c, `SELECT id FROM users WHERE tg_id = $1`, tgID).Scan(&userID)
 	if err != nil {
-		_, err = s.DB.Exec(c, "INSERT INTO users (tg_id) VALUES ($1)", tgID)
+		_, err = s.DB.Exec(c, `INSERT INTO users(tg_id) VALUES($1)`, tgID)
 		if err != nil {
 			c.JSON(500, gin.H{"error": "DB error"})
 			return
 		}
-		err = s.DB.QueryRow(c, "SELECT id FROM users WHERE tg_id = $1", tgID).Scan(&userID)
-		if err != nil {
-			c.JSON(500, gin.H{"error": "DB error"})
-			return
-		}
+		_ = s.DB.QueryRow(c, `SELECT id FROM users WHERE tg_id = $1`, tgID).Scan(&userID)
 	}
 
 	// OTP
@@ -265,19 +379,17 @@ func (s *Server) VerifySend(c *gin.Context) {
 	expires := time.Now().Add(30 * time.Minute)
 	resendAfter := time.Now().Add(30 * time.Second)
 
-	_, _ = s.DB.Exec(c, "DELETE FROM otp WHERE user_id = $1", userID)
+	_, _ = s.DB.Exec(c, `DELETE FROM otp WHERE user_id = $1`, userID)
 	_, err = s.DB.Exec(c, `
 		INSERT INTO otp (user_id, email, code_hash, sent_at, expires_at, resend_after)
 		VALUES ($1, $2, $3, NOW(), $4, $5)
 	`, userID, email, hash, expires, resendAfter)
 	if err != nil {
-		log.Printf("OTP save error: %v", err)
 		c.JSON(500, gin.H{"error": "Send error"})
 		return
 	}
 
 	if err := s.sendEmail(email, codeStr); err != nil {
-		log.Printf("Email send error: %v", err)
 		c.JSON(500, gin.H{"error": "Send error"})
 		return
 	}
@@ -290,116 +402,98 @@ func (s *Server) VerifyCheck(c *gin.Context) {
 		Code  string `json:"code"  binding:"required,len=6"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("Bind JSON error: %v", err)
 		c.JSON(400, gin.H{"error": "Invalid input"})
 		return
 	}
 	email := normalizeEmail(req.Email)
-	if email == "" {
-		c.JSON(400, gin.H{"error": "Invalid input"})
-		return
-	}
 
-	// MVP
+	// MVP: tg_id=1 → users.id
 	tgID := int64(1)
 	var userID int64
-	if err := s.DB.QueryRow(c, "SELECT id FROM users WHERE tg_id = $1", tgID).Scan(&userID); err != nil {
-		log.Printf("User ID fetch error for tg_id %d: %v", tgID, err)
+	if err := s.DB.QueryRow(c, `SELECT id FROM users WHERE tg_id=$1`, tgID).Scan(&userID); err != nil {
 		c.JSON(404, gin.H{"error": "User not found"})
 		return
 	}
 
+	// проверка OTP
 	var hash string
 	err := s.DB.QueryRow(c, `
 		SELECT code_hash
 		FROM otp
-		WHERE user_id = $1
-		  AND email   = $2
-		  AND expires_at > NOW()
+		WHERE user_id=$1 AND email=$2 AND expires_at>NOW()
 	`, userID, email).Scan(&hash)
-	if err != nil {
-		log.Printf("OTP fetch error: %v", err)
+	if err != nil || hash != req.Code {
 		c.JSON(400, gin.H{"error": "Invalid or expired code"})
 		return
 	}
-	if hash != req.Code {
-		log.Printf("Invalid code: stored %s, received %s", hash, req.Code)
-		c.JSON(400, gin.H{"error": "Invalid code"})
-		return
-	}
 
-	_, _ = s.DB.Exec(c, "DELETE FROM otp WHERE user_id = $1 AND email = $2", userID, email)
-	_, _ = s.DB.Exec(c, "UPDATE users SET email = $1, email_verified_at = NOW() WHERE id = $2", email, userID)
+	// consumed
+	_, _ = s.DB.Exec(c, `DELETE FROM otp WHERE user_id=$1 AND email=$2`, userID, email)
 
-	token, err := IssueAccessToken(userID) // предполагается реализованным где-то в коде
+	// фиксируем e-mail в users и обновляем/создаём привязку в auth_emails
+	_, _ = s.DB.Exec(c, `UPDATE users SET email=$1, email_verified_at=NOW() WHERE id=$2`, email, userID)
+	_, _ = s.DB.Exec(c, `
+		INSERT INTO auth_emails (user_id, email_norm)
+		VALUES ($1, $2)
+		ON CONFLICT (email_norm) DO UPDATE SET user_id = EXCLUDED.user_id
+	`, userID, email)
+
+	// токены (реализация в auth.go)
+	token, err := IssueAccessToken(userID)
 	if err != nil {
-		log.Printf("JWT issue error: %v", err)
 		c.JSON(500, gin.H{"error": "token error"})
 		return
 	}
-
-	rt, exp, err := IssueRefreshToken(userID) // предполагается реализованным где-то в коде
-	if err == nil {
-		setRefreshCookie(c, rt, exp) // предполагается реализованным где-то в коде
+	if rt, exp, err := IssueRefreshToken(userID); err == nil {
+		setRefreshCookie(c, rt, exp)
 	}
 
-	log.Printf("Verification success for email %s", email)
+	// ← лог успешного входа ДО ответа
+	logLoginEvent(c, s.DB, email, &userID, "login_ok", "tma", map[string]any{
+		"method": "otp",
+	})
+
 	c.JSON(200, gin.H{"token": token, "verified": true})
 }
 
-// SMTP
+
+// SMTP (MVP)
 func (s *Server) sendEmail(to, code string) error {
 	from := os.Getenv("SMTP_USER")
 	pass := os.Getenv("SMTP_PASS")
-	smtpHost := os.Getenv("SMTP_HOST")
-	smtpPort := os.Getenv("SMTP_PORT")
-	if from == "" || pass == "" || smtpHost == "" || smtpPort == "" {
+	host := os.Getenv("SMTP_HOST")
+	port := os.Getenv("SMTP_PORT")
+	if from == "" || pass == "" || host == "" || port == "" {
 		return fmt.Errorf("SMTP env vars not set")
 	}
 
 	msg := []byte("To: " + to + "\r\n" +
-		"Subject: Your OTP Code\r\n" +
-		"\r\nYour verification code is: " + code + "\r\n")
+		"Subject: Your OTP Code\r\n\r\n" +
+		"Your verification code is: " + code + "\r\n")
 
-	auth := smtp.PlainAuth("", from, pass, smtpHost)
-	addr := smtpHost + ":" + smtpPort
-	tlsConfig := &tls.Config{ServerName: smtpHost}
+	auth := smtp.PlainAuth("", from, pass, host)
+	addr := host + ":" + port
+	tlsCfg := &tls.Config{ServerName: host}
 
-	conn, err := tls.Dial("tcp", addr, tlsConfig)
-	if err != nil {
-		return err
-	}
+	conn, err := tls.Dial("tcp", addr, tlsCfg)
+	if err != nil { return err }
 	defer conn.Close()
 
-	client, err := smtp.NewClient(conn, smtpHost)
-	if err != nil {
-		return err
-	}
+	client, err := smtp.NewClient(conn, host)
+	if err != nil { return err }
 	defer client.Close()
 
-	if err = client.Auth(auth); err != nil {
-		return err
-	}
-	if err = client.Mail(from); err != nil {
-		return err
-	}
-	if err = client.Rcpt(to); err != nil {
-		return err
-	}
+	if err = client.Auth(auth); err != nil { return err }
+	if err = client.Mail(from); err != nil { return err }
+	if err = client.Rcpt(to); err != nil { return err }
 	w, err := client.Data()
-	if err != nil {
-		return err
-	}
-	if _, err = w.Write(msg); err != nil {
-		return err
-	}
-	if err = w.Close(); err != nil {
-		return err
-	}
+	if err != nil { return err }
+	if _, err = w.Write(msg); err != nil { return err }
+	if err = w.Close(); err != nil { return err }
 	return client.Quit()
 }
 
-// --- PROTECTED ------------------------------------------------------
+// --- protected ---------------------------------------------------------------
 
 func (s *Server) ProfileProtected(c *gin.Context) {
 	uidAny, _ := c.Get("user_id")
@@ -408,19 +502,14 @@ func (s *Server) ProfileProtected(c *gin.Context) {
 		c.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
-
 	var email *string
 	var emailVerified bool
 	if err := s.DB.QueryRow(c, `
-		SELECT email, email_verified_at IS NOT NULL
-		FROM users
-		WHERE id = $1
+		SELECT email, email_verified_at IS NOT NULL FROM users WHERE id=$1
 	`, userID).Scan(&email, &emailVerified); err != nil {
-		log.Printf("profile fetch error: %v", err)
 		c.JSON(500, gin.H{"error": "db error"})
 		return
 	}
-
 	c.JSON(200, gin.H{
 		"user_id":         userID,
 		"email":           email,
@@ -430,21 +519,27 @@ func (s *Server) ProfileProtected(c *gin.Context) {
 	})
 }
 
+// GET /api/winners/my — выигрыши по email_norm (надёжнее, чем по user_id)
 func (s *Server) WinnersMy(c *gin.Context) {
-	uidAny, _ := c.Get("user_id")
-	userID, ok := uidAny.(int64)
-	if !ok {
-		c.JSON(401, gin.H{"error": "unauthorized"})
+	emailNorm, err := getEmailNormFromCtxOrDB(c, s.DB)
+	if err != nil || emailNorm == "" {
+		c.JSON(401, gin.H{"error": "unauthorized_no_email"})
 		return
 	}
 
 	rows, err := s.DB.Query(c, `
-		SELECT draw_id, amount_eur, rank, reason, computed_at
-		FROM lw_winners
-		WHERE user_id = $1
+		SELECT draw_id,
+		       amount_eur,
+		       rank,
+		       reason,
+		       computed_at,
+		       claimed_at,
+		       (claimed_at IS NOT NULL) AS claimed
+		FROM public.lw_winners
+		WHERE email_norm = $1::citext
 		ORDER BY computed_at DESC, rank ASC
 		LIMIT 200
-	`, userID)
+	`, emailNorm)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "db error"})
 		return
@@ -452,16 +547,18 @@ func (s *Server) WinnersMy(c *gin.Context) {
 	defer rows.Close()
 
 	type Win struct {
-		DrawID     string    `json:"draw_id"`
-		AmountEUR  float64   `json:"amount_eur"`
-		Rank       int       `json:"rank"`
-		Reason     string    `json:"reason"`
-		ComputedAt time.Time `json:"computed_at"`
+		DrawID     string     `json:"draw_id"`
+		AmountEUR  float64    `json:"amount_eur"`
+		Rank       int        `json:"rank"`
+		Reason     string     `json:"reason"`
+		ComputedAt time.Time  `json:"computed_at"`
+		ClaimedAt  *time.Time `json:"claimed_at,omitempty"`
+		Claimed    bool       `json:"claimed"`
 	}
-	wins := []Win{}
+	var wins []Win
 	for rows.Next() {
 		var w Win
-		if err := rows.Scan(&w.DrawID, &w.AmountEUR, &w.Rank, &w.Reason, &w.ComputedAt); err != nil {
+		if err := rows.Scan(&w.DrawID, &w.AmountEUR, &w.Rank, &w.Reason, &w.ComputedAt, &w.ClaimedAt, &w.Claimed); err != nil {
 			c.JSON(500, gin.H{"error": "scan error"})
 			return
 		}
@@ -470,7 +567,7 @@ func (s *Server) WinnersMy(c *gin.Context) {
 	c.JSON(200, gin.H{"winnings": wins})
 }
 
-// PUBLIC
+
 func (s *Server) WinnersLatest(c *gin.Context) {
 	drawID := c.Query("draw_id")
 	if drawID == "" {
@@ -480,7 +577,6 @@ func (s *Server) WinnersLatest(c *gin.Context) {
 			return
 		}
 	}
-
 	rows, err := s.DB.Query(c, `
 		SELECT email_norm, amount_eur, rank
 		FROM lw_winners
@@ -499,7 +595,7 @@ func (s *Server) WinnersLatest(c *gin.Context) {
 		Amount float64 `json:"amount_eur"`
 		Rank   int     `json:"rank"`
 	}
-	list := []W{}
+	var list []W
 	for rows.Next() {
 		var w W
 		if err := rows.Scan(&w.Email, &w.Amount, &w.Rank); err != nil {
@@ -511,53 +607,21 @@ func (s *Server) WinnersLatest(c *gin.Context) {
 	c.JSON(200, gin.H{"draw_id": drawID, "winners": list})
 }
 
-// helper: завершённые дни (UTC)
-func completedBoundsForRange(rng string, now time.Time) (time.Time, time.Time) {
-    // нормализуем к полуночи UTC
-    todayUTC := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0,0,0,0, time.UTC)
-    switch rng {
-    case "today":
-        // показываем вчерашний день
-        return todayUTC.AddDate(0,0,-1), todayUTC
-    case "yesterday":
-        // позавчера
-        return todayUTC.AddDate(0,0,-2), todayUTC.AddDate(0,0,-1)
-    case "last7":
-        // последние 7 завершённых дней, включая вчера (7*25 = 175 строк при без-агрегационном выводе)
-        return todayUTC.AddDate(0,0,-7), todayUTC
-    case "top10":
-        // тот же интервал, что и last7
-        return todayUTC.AddDate(0,0,-7), todayUTC
-    default:
-        // дефолт — как last7
-        return todayUTC.AddDate(0,0,-7), todayUTC
-    }
-}
-
-
-// NEW: агрегаты для страницы Winners (today|yesterday|last7|top10)
 func (s *Server) WinnersAgg(c *gin.Context) {
 	rng := c.Query("range")
 	from, to := completedBoundsForRange(rng, time.Now())
-
 	const q = `
-	  SELECT
-	    email_norm,
-	    COUNT(*)::int                         AS win_count,
-	    COALESCE(SUM(amount_eur),0)::float8   AS win_amount,
-	    BOOL_OR(claimed_at IS NOT NULL)       AS claimed
+	  SELECT email_norm,
+	         COUNT(*)::int                      AS win_count,
+	         COALESCE(SUM(amount_eur),0)::float AS win_amount,
+	         BOOL_OR(claimed_at IS NOT NULL)    AS claimed
 	  FROM public.lw_winners
-	  WHERE draw_id >= $1::date::text
-	    AND draw_id <  $2::date::text
+	  WHERE draw_id >= $1::date::text AND draw_id < $2::date::text
 	  GROUP BY email_norm
 	  ORDER BY win_amount DESC
 	  LIMIT 200;
 	`
-
-	rows, err := s.DB.Query(c, q,
-		from.Format("2006-01-02"),
-		to.Format("2006-01-02"),
-	)
+	rows, err := s.DB.Query(c, q, from.Format("2006-01-02"), to.Format("2006-01-02"))
 	if err != nil {
 		c.JSON(500, gin.H{"error": "db error"})
 		return
@@ -570,8 +634,7 @@ func (s *Server) WinnersAgg(c *gin.Context) {
 		WinAmount float64 `json:"win_amount"`
 		Claimed   bool    `json:"claimed"`
 	}
-
-	list := make([]Row, 0, 64)
+	var list []Row
 	for rows.Next() {
 		var r Row
 		if err := rows.Scan(&r.EmailNorm, &r.WinCount, &r.WinAmount, &r.Claimed); err != nil {
@@ -583,103 +646,52 @@ func (s *Server) WinnersAgg(c *gin.Context) {
 	c.JSON(200, list)
 }
 
+// GET /api/me — возвращаем внешний id + флаг показа модалки
 func (s *Server) MeProtected(c *gin.Context) {
-	uidAny, _ := c.Get("user_id")
-	userID, ok := uidAny.(int64)
-	if !ok {
-		c.JSON(401, gin.H{"error": "unauthorized"})
+	emailNorm, err := getEmailNormFromCtxOrDB(c, s.DB)
+	if err != nil || emailNorm == "" {
+		c.JSON(401, gin.H{"error": "unauthorized_no_email"})
 		return
 	}
 
-	// 1) базовые поля из users
-	var email *string
-	var emailVerified bool
-	var balance float64
-	if err := s.DB.QueryRow(c, `
-		SELECT email, email_verified_at IS NOT NULL, COALESCE(balance, 0)
-		FROM users
-		WHERE id = $1
-	`, userID).Scan(&email, &emailVerified, &balance); err != nil {
-		log.Printf("me fetch error: %v", err)
-		c.JSON(500, gin.H{"error": "db error"})
-		return
-	}
-
-	emailTxt := ""
-	if email != nil {
-		emailTxt = *email
-	}
-
-	// 2) внешние ID из выгрузок по email (нормализуем к lower)
+	// внешний id (user_id из lw_ledger) — берём максимальный по этому email
 	var ledgerUserID sql.NullInt64
-	var authUserID sql.NullInt64
+	_ = s.DB.QueryRow(c, `
+		SELECT NULLIF(MAX(l.user_id),0)::bigint
+		FROM lw_ledger l
+		WHERE l.email_norm = $1::citext
+	`, emailNorm).Scan(&ledgerUserID)
 
-	if emailTxt != "" {
-		// lw_ledger: берём MAX(user_id), игнорируем 0 как «нет данных»
-		if err := s.DB.QueryRow(c, `
-			SELECT NULLIF(MAX(l.user_id), 0)::bigint
-			FROM lw_ledger l
-			WHERE l.email_norm = lower($1)::citext
-		`, emailTxt).Scan(&ledgerUserID); err != nil {
-			log.Printf("me ledger id error: %v", err)
-		}
-
-		// auth_emails: аналогично
-		if err := s.DB.QueryRow(c, `
-			SELECT NULLIF(MAX(a.user_id), 0)::bigint
-			FROM auth_emails a
-			WHERE a.email_norm = lower($1)::citext
-		`, emailTxt).Scan(&authUserID); err != nil {
-			log.Printf("me auth id error: %v", err)
-		}
-	}
-
-	// 3) флаг для one-off баннера
-	var shouldShow bool
-	if err := s.DB.QueryRow(c, `
-		SELECT EXISTS (
-		  SELECT 1
-		  FROM claim_denied_oneoff t
-		  WHERE t.shown_at IS NULL
-		    AND (
-		          t.user_id = $1
-		       OR ($2 <> '' AND t.email_norm = lower($2)::citext)
-		    )
-		)
-	`, userID, emailTxt).Scan(&shouldShow); err != nil {
-		log.Printf("target check error: %v", err)
-		c.JSON(500, gin.H{"error": "db error"})
-		return
-	}
-
-	// 4) формируем ответ; null-инты отдаём как число или null
 	var ledgerPtr *int64
 	if ledgerUserID.Valid {
 		v := ledgerUserID.Int64
 		ledgerPtr = &v
 	}
-	var authPtr *int64
-	if authUserID.Valid {
-		v := authUserID.Int64
-		authPtr = &v
-	}
+
+	// ФЛАГ одноразовой модалки: shown_at IS NULL → показать
+	var shouldShow bool
+	_ = s.DB.QueryRow(c, `
+		SELECT EXISTS(
+		  SELECT 1
+		  FROM claim_denied_oneoff
+		  WHERE email_norm = $1::citext AND shown_at IS NULL
+		)
+	`, emailNorm).Scan(&shouldShow)
 
 	c.JSON(200, gin.H{
-		"user_id":                  userID, // внутренний users.id (fallback)
-		"email":                    email,
-		"email_verified":           emailVerified,
-		"balance":                  balance,
-		"should_show_claim_denied": shouldShow,
-
-		// добавлено:
-		"ledger_user_id": ledgerPtr, // AccountID из lw_ledger (или null)
-		"auth_user_id":   authPtr,   // user_id из auth_emails (или null)
-		"external_id":    nil,       // на будущее, если появится внешний источник
+		"email":                    emailNorm,
+		"email_verified":           true,
+		"balance":                  0,
+		"ledger_user_id":           ledgerPtr,
+		"auth_user_id":             nil,
+		"external_id":              ledgerPtr,
+		"should_show_claim_denied": shouldShow, // ← ВОТ ЭТО ВАЖНО
 	})
 }
 
-// POST /api/claim-denied-ack — помечает показанным
-func (s *Server) ClaimDeniedAck(c *gin.Context) {
+
+// POST /api/winners/claim { draw_id } — клейм по (draw_id, user_id)
+func (s *Server) WinnersClaim(c *gin.Context) {
 	uidAny, _ := c.Get("user_id")
 	userID, ok := uidAny.(int64)
 	if !ok {
@@ -687,215 +699,273 @@ func (s *Server) ClaimDeniedAck(c *gin.Context) {
 		return
 	}
 
-	var email *string
-	_ = s.DB.QueryRow(c, `SELECT email FROM users WHERE id = $1`, userID).Scan(&email)
-
-	emailTxt := ""
-	if email != nil {
-		emailTxt = *email
+	var req struct {
+		DrawID string `json:"draw_id" binding:"required"`
 	}
-
-	_, err := s.DB.Exec(c, `
-		UPDATE claim_denied_oneoff
-		   SET shown_at = NOW()
-		 WHERE shown_at IS NULL
-		   AND (
-			 user_id = $1
-		  OR ($2 <> '' AND email_norm = $2)
-		   )
-	`, userID, emailTxt)
-	if err != nil {
-		log.Printf("claim-denied-ack update error: %v", err)
-		c.JSON(500, gin.H{"ok": false})
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.DrawID) == "" {
+		c.JSON(400, gin.H{"error": "bad_request"})
 		return
 	}
+
+	const q = `
+		UPDATE public.lw_winners
+		   SET claimed_at = COALESCE(claimed_at, NOW())
+		 WHERE draw_id = $1
+		   AND user_id  = $2
+		 RETURNING amount_eur, claimed_at
+	`
+	var amount float64
+	var claimedAt time.Time
+	if err := s.DB.QueryRow(c, q, req.DrawID, userID).Scan(&amount, &claimedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(404, gin.H{"error": "not_found"})
+			return
+		}
+		c.JSON(500, gin.H{"error": "db_error"})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"ok":         true,
+		"draw_id":    req.DrawID,
+		"amount_eur": amount,
+		"claimed_at": claimedAt,
+	})
+}
+
+
+func (s *Server) ClaimDeniedAck(c *gin.Context) {
+	emailNorm, err := getEmailNormFromCtxOrDB(c, s.DB)
+	if err != nil || emailNorm == "" {
+		c.JSON(401, gin.H{"error": "unauthorized_no_email"})
+		return
+	}
+
+	// 1) Помечаем, что модалка показана
+	_, e := s.DB.Exec(c, `
+		INSERT INTO claim_denied_oneoff(email_norm, shown_at)
+		VALUES ($1, NOW())
+		ON CONFLICT (email_norm) DO UPDATE SET shown_at = NOW()
+	`, emailNorm)
+	if e != nil {
+		c.JSON(500, gin.H{"error": "db_error"})
+		return
+	}
+
+	// BONUS: 2) Создаём «ожидающую» запись в lw_winners (если её ещё нет)
+	uidAny, _ := c.Get("user_id")
+	userID, ok := uidAny.(int64)
+	if ok && userID > 0 {
+		amount := 500.0
+		if v := os.Getenv("BONUS_AMOUNT_EUR"); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+				amount = f
+			}
+		}
+		today := time.Now().UTC().Format("2006-01-02") // draw_id как YYYY-MM-DD
+		// Вставляем, если ещё нет бонусной строки на сегодня для этого user_id
+		_, _ = s.DB.Exec(c, `
+			INSERT INTO public.lw_winners (draw_id, email_norm, user_id, amount_eur, rank, reason, computed_at, claimed_at)
+			SELECT $1, $2::citext, $3, $4, 0, 'bonus', NOW(), NULL
+			WHERE NOT EXISTS (
+				SELECT 1 FROM public.lw_winners 
+				WHERE draw_id = $1 AND user_id = $3 AND reason = 'bonus'
+			)
+		`, today, emailNorm, userID, amount)
+	}
+
 	c.JSON(200, gin.H{"ok": true})
 }
 
-// POST /api/claim-bonus { amount: 500, reason: "claim_denied_bonus" }
 func (s *Server) ClaimBonus(c *gin.Context) {
-        uidAny, _ := c.Get("user_id")
-        userID, ok := uidAny.(int64)
-        if !ok {
-                c.JSON(401, gin.H{"error": "unauthorized"})
-                return
-        }
-        var req struct {
-                Amount float64 `json:"amount"`
-                Reason string `json:"reason"`
-        }
-        if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
-                c.JSON(400, gin.H{"error": "bad request"})
-                return
-        }
-        if req.Amount <= 0 {
-                c.JSON(400, gin.H{"error": "amount must be > 0"})
-                return
-        }
-        if req.Reason == "" {
-                req.Reason = "bonus"
-        }
-        ctx := c.Request.Context()
-        tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{})
-        if err != nil {
-                c.JSON(500, gin.H{"error": "tx begin error"})
-                return
-        }
-        defer func() { _ = tx.Rollback(ctx) }()
-        // журнал + обновить баланс (всегда, без проверки exists)
-        log.Printf("ClaimBonus: adding bonus for user %d, amount %.2f, reason %s", userID, req.Amount, req.Reason)
-        if _, err := tx.Exec(ctx, `
-                INSERT INTO wallet_ledger(user_id, amount_eur, reason)
-                VALUES($1, $2, $3)
-        `, userID, req.Amount, req.Reason); err != nil {
-                c.JSON(500, gin.H{"error": "insert ledger error"})
-                return
-        }
-        if _, err := tx.Exec(ctx, `
-                UPDATE users SET balance = COALESCE(balance,0) + $1
-                WHERE id = $2
-        `, req.Amount, userID); err != nil {
-                c.JSON(500, gin.H{"error": "update balance error"})
-                return
-        }
-        var newBal float64
-        if err := tx.QueryRow(ctx, `SELECT COALESCE(balance,0) FROM users WHERE id=$1`, userID).Scan(&newBal); err != nil {
-                c.JSON(500, gin.H{"error": "get balance error"})
-                return
-        }
-        // 🔔 уведомление боту (уйдёт после успешного COMMIT этой транзакции)
-        payload := map[string]any{
-                "event": "claim_bonus",
-                "user_id": userID,
-                "amount_eur": req.Amount,
-                "reason": req.Reason,
-                "ts": time.Now().UTC(), // import "time"
-        }
-        b, _ := json.Marshal(payload)
-        log.Printf("Preparing notify with payload: %s", string(b))
-        if _, err := tx.Exec(ctx, `SELECT pg_notify('lw_winner_events', $1)`, string(b)); err != nil {
-                log.Printf("pg_notify error: %v", err)
-                c.JSON(500, gin.H{"error": "notify error"})
-                return
-        }
-        log.Printf("pg_notify sent successfully")
-        if err := tx.Commit(ctx); err != nil {
-                c.JSON(500, gin.H{"error": "tx commit error"})
-                return
-        }
-        c.JSON(200, gin.H{"new_balance": newBal})
-}
-
-// GET /api/winners_feed?range=today|yesterday|last7&limit=50
-func (s *Server) WinnersFeed(c *gin.Context) {
-    rng := c.Query("range")
-    from, to := completedBoundsForRange(rng, time.Now())
-
-    // лимит с безопасными границами
-    lim := 175
-    if v := c.Query("limit"); v != "" {
-        if n, err := strconv.Atoi(v); err == nil {
-            if n < 1 {
-                n = 1
-            }
-            if n > 500 {
-                n = 500
-            }
-            lim = n
-        }
-    }
-
-    const q = `
-      SELECT
-        draw_id,
-        email_norm,
-        user_id,
-        amount_eur,
-        (claimed_at IS NOT NULL) AS claimed
-      FROM public.lw_winners
-      WHERE draw_id >= $1::date::text
-        AND draw_id <  $2::date::text
-      ORDER BY draw_id, amount_eur DESC, email_norm
-      LIMIT $3
-    `
-
-    rows, err := s.DB.Query(c, q, from.Format("2006-01-02"), to.Format("2006-01-02"), lim)
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+    uidAny, _ := c.Get("user_id")
+    userID, ok := uidAny.(int64)
+    if !ok {
+        c.JSON(401, gin.H{"error": "unauthorized"})
         return
     }
-    defer rows.Close()
-
-    type Row struct {
-        DrawID    string  `json:"draw_id"`
-        EmailNorm string  `json:"email_norm"`
-        UserID    *int64  `json:"user_id"`     // nullable
-        Amount    float64 `json:"amount_eur"`
-        Claimed   bool    `json:"claimed"`
+    var req struct {
+        Amount float64 `json:"amount"`
+        Reason string  `json:"reason"`
+    }
+    if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
+        c.JSON(400, gin.H{"error": "bad request"})
+        return
+    }
+    if req.Amount <= 0 {
+        c.JSON(400, gin.H{"error": "amount must be > 0"})
+        return
+    }
+    if strings.TrimSpace(req.Reason) == "" {
+        req.Reason = "bonus"
     }
 
-    list := make([]Row, 0, lim)
-    for rows.Next() {
-        var (
-            drawID, email string
-            uid sql.NullInt64
-            amount float64
-            claimed bool
-        )
-        if err := rows.Scan(&drawID, &email, &uid, &amount, &claimed); err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "scan error"})
+    // Нужен email_norm для записи в lw_winners
+    emailNorm, err := getEmailNormFromCtxOrDB(c, s.DB)
+    if err != nil || emailNorm == "" {
+        c.JSON(401, gin.H{"error": "unauthorized_no_email"})
+        return
+    }
+
+    ctx := c.Request.Context()
+    tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{})
+    if err != nil {
+        c.JSON(500, gin.H{"error": "tx begin error"})
+        return
+    }
+    defer func() { _ = tx.Rollback(ctx) }()
+
+    // 1) Денежная часть — как было
+    if _, err := tx.Exec(ctx, `
+        INSERT INTO wallet_ledger(user_id, amount_eur, reason)
+        VALUES($1, $2, $3)
+    `, userID, req.Amount, req.Reason); err != nil {
+        c.JSON(500, gin.H{"error": "insert ledger error"})
+        return
+    }
+    if _, err := tx.Exec(ctx, `
+        UPDATE users SET balance = COALESCE(balance,0) + $1 WHERE id=$2
+    `, req.Amount, userID); err != nil {
+        c.JSON(500, gin.H{"error": "update balance error"})
+        return
+    }
+
+    // 2) Видимость в My Winnings:
+    //    фиксируем/обновляем запись в lw_winners на сегодняшнюю дату (draw_id = YYYY-MM-DD)
+    drawID := time.Now().UTC().Format("2006-01-02")
+    // Попробуем обновить уже существующую "bonus" запись на сегодня, иначе вставим новую
+    // (при желании можно завести UNIQUE (email_norm, draw_id, reason))
+    cmdTag, err := tx.Exec(ctx, `
+        UPDATE public.lw_winners
+           SET amount_eur = $1,
+               user_id    = $2,
+               reason     = 'bonus',
+               computed_at= NOW(),
+               claimed_at = COALESCE(claimed_at, NOW())
+         WHERE draw_id    = $3
+           AND email_norm = $4::citext
+           AND reason     = 'bonus'
+    `, req.Amount, userID, drawID, emailNorm)
+    if err != nil {
+        c.JSON(500, gin.H{"error": "winners update error"})
+        return
+    }
+    if cmdTag.RowsAffected() == 0 {
+        // Вставляем новую «заклейменную» запись
+        _, err = tx.Exec(ctx, `
+            INSERT INTO public.lw_winners
+                (draw_id, email_norm, user_id, amount_eur, rank, reason, computed_at, claimed_at)
+            VALUES ($1,      $2::citext, $3,      $4,        0,    'bonus', NOW(),      NOW())
+        `, drawID, emailNorm, userID, req.Amount)
+        if err != nil {
+            c.JSON(500, gin.H{"error": "winners insert error"})
             return
         }
-        var userPtr *int64
-        if uid.Valid {
-            v := uid.Int64
-            userPtr = &v
-        }
-        list = append(list, Row{
-            DrawID:    drawID,
-            EmailNorm: email,
-            UserID:    userPtr,
-            Amount:    amount,
-            Claimed:   claimed,
-        })
     }
-    c.JSON(http.StatusOK, list)
+
+    // 3) Уведомление — как было
+    payload := map[string]any{
+        "event":      "claim_bonus",
+        "user_id":    userID,
+        "amount_eur": req.Amount,
+        "reason":     req.Reason,
+        "ts":         time.Now().UTC(),
+    }
+    if b, _ := json.Marshal(payload); len(b) > 0 {
+        _, _ = tx.Exec(ctx, `SELECT pg_notify('lw_winner_events', $1)`, string(b))
+    }
+
+    var newBal float64
+    if err := tx.QueryRow(ctx, `SELECT COALESCE(balance,0) FROM users WHERE id=$1`, userID).Scan(&newBal); err != nil {
+        c.JSON(500, gin.H{"error": "get balance error"})
+        return
+    }
+    if err := tx.Commit(ctx); err != nil {
+        c.JSON(500, gin.H{"error": "tx commit error"})
+        return
+    }
+    c.JSON(200, gin.H{"new_balance": newBal})
 }
 
 
-// GET /api/winners_top10  (топ-10 по сумме за last7 completed)
+// feed/top10 (как были)
+func (s *Server) WinnersFeed(c *gin.Context) {
+	rng := c.Query("range")
+	from, to := completedBoundsForRange(rng, time.Now())
+	lim := 175
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			if n < 1 { n = 1 }
+			if n > 500 { n = 500 }
+			lim = n
+		}
+	}
+	const q = `
+	  SELECT draw_id, email_norm, user_id, amount_eur, (claimed_at IS NOT NULL) AS claimed
+	  FROM public.lw_winners
+	  WHERE draw_id >= $1::date::text AND draw_id < $2::date::text
+	  ORDER BY draw_id, amount_eur DESC, email_norm
+	  LIMIT $3
+	`
+	rows, err := s.DB.Query(c, q, from.Format("2006-01-02"), to.Format("2006-01-02"), lim)
+	if err != nil { c.JSON(500, gin.H{"error": "db error"}); return }
+	defer rows.Close()
+
+	type Row struct {
+		DrawID    string  `json:"draw_id"`
+		EmailNorm string  `json:"email_norm"`
+		UserID    *int64  `json:"user_id"`
+		Amount    float64 `json:"amount_eur"`
+		Claimed   bool    `json:"claimed"`
+	}
+	var list []Row
+	for rows.Next() {
+		var (
+			drawID, email string
+			uid sql.NullInt64
+			amount float64
+			claimed bool
+		)
+		if err := rows.Scan(&drawID, &email, &uid, &amount, &claimed); err != nil {
+			c.JSON(500, gin.H{"error": "scan error"}); return
+		}
+		var userPtr *int64
+		if uid.Valid { v := uid.Int64; userPtr = &v }
+		list = append(list, Row{DrawID: drawID, EmailNorm: email, UserID: userPtr, Amount: amount, Claimed: claimed})
+	}
+	c.JSON(200, list)
+}
+
 func (s *Server) WinnersTop10(c *gin.Context) {
-    from, to := completedBoundsForRange("top10", time.Now())
-    const q = `
-      SELECT
-        email_norm,
-        COUNT(*)::int                       AS win_count,
-        COALESCE(SUM(amount_eur),0)::float8 AS win_amount,
-        BOOL_OR(claimed_at IS NOT NULL)     AS claimed
-      FROM public.lw_winners
-      WHERE draw_id >= $1::date::text
-        AND draw_id <  $2::date::text
-      GROUP BY email_norm
-      ORDER BY win_amount DESC
-      LIMIT 10;
-    `
-    rows, err := s.DB.Query(c, q, from.Format("2006-01-02"), to.Format("2006-01-02"))
-    if err != nil { c.JSON(500, gin.H{"error":"db error"}); return }
-    defer rows.Close()
+	from, to := completedBoundsForRange("top10", time.Now())
+	const q = `
+	  SELECT email_norm,
+	         COUNT(*)::int, COALESCE(SUM(amount_eur),0)::float8,
+	         BOOL_OR(claimed_at IS NOT NULL)
+	  FROM public.lw_winners
+	  WHERE draw_id >= $1::date::text AND draw_id < $2::date::text
+	  GROUP BY email_norm
+	  ORDER BY 3 DESC
+	  LIMIT 10;
+	`
+	rows, err := s.DB.Query(c, q, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil { c.JSON(500, gin.H{"error": "db error"}); return }
+	defer rows.Close()
 
-    type Row struct {
-        EmailNorm string  `json:"email_norm"`
-        WinCount  int     `json:"win_count"`
-        WinAmount float64 `json:"win_amount"`
-        Claimed   bool    `json:"claimed"`
-    }
-    list := make([]Row,0,10)
-    for rows.Next() {
-        var r Row
-        if err := rows.Scan(&r.EmailNorm, &r.WinCount, &r.WinAmount, &r.Claimed); err != nil {
-            c.JSON(500, gin.H{"error":"scan error"}); return
-        }
-        list = append(list, r)
-    }
-    c.JSON(200, list)
+	type Row struct {
+		EmailNorm string  `json:"email_norm"`
+		WinCount  int     `json:"win_count"`
+		WinAmount float64 `json:"win_amount"`
+		Claimed   bool    `json:"claimed"`
+	}
+	var list []Row
+	for rows.Next() {
+		var r Row
+		if err := rows.Scan(&r.EmailNorm, &r.WinCount, &r.WinAmount, &r.Claimed); err != nil {
+			c.JSON(500, gin.H{"error": "scan error"}); return
+		}
+		list = append(list, r)
+	}
+	c.JSON(200, list)
 }
+

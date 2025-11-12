@@ -7,7 +7,7 @@
   "prizePool": "Prize pool",
   "deposit": "Deposit",
   "moreDetails": "More details",
-  "description": "This promotion is available to all registered users who are eligible to receive promotions.\n\nEvery day at 00:01 UTC, twenty-five qualifying players will be randomly selected in a daily raffle.\n\nThe daily prize is 500 EUR, but if it is not claimed by 23:59 UTC on the same day, it will be added to the grand jackpot bank. The grand jackpot can reach up to 5,000 EUR.\n\nTo claim the prize, the winning player needs to log in before 23:59 UTC on the same day and click the \"Claim\" button in the Congratulations pop-up.\n\nOnce claimed, the prize will be added to the user's account balance within 12 hours.\n\nThe prize is subject to 0× wagering requirements, which must be completed within 10 days of claiming the prize.\n\nThis promotion is not limited in time. However, our Website reserves the right to modify or terminate the promotion at its discretion and without prior notice.\n\nThis promotion is valid in accordance with the Terms and Conditions.",
+  "description": "This promotion is available to all registered users who are eligible to receive promotions.\n\nEvery day at 00:01 UTC, twenty-five qualifying players will be randomly selected in a daily raffle.\n\nThe daily prize is 500 EUR, but if it is not claimed by 23:59 UTC on the same day, it will be added to the grand jackpot bank. The grand jackpot can reach up to 5,000 EUR.\n\nTo claim the prize, the winning player needs to log in before 23:59 UTC on the same day and click the \"Claim\" button in the Congratulations pop-up.\n\nOnce claimed, the prize will be added to the user’s account balance within 24 hours.\n\nThe prize is subject to 0× wagering requirements, which must be completed within 10 days of claiming the prize.\n\nBy logging in or registering via email, the user expressly consents to receive promotional and informational communications, including newsletters, special offers, service updates, and other marketing materials related to the Website and its partners.\n\nThis promotion is not limited in time. However, our Website reserves the right to modify or terminate the promotion at its discretion and without prior notice.\n\nThis promotion is valid in accordance with the Terms and Conditions.",
   "winners": "Winners",
   "today": "Today",
   "yesterday": "Yesterday",
@@ -45,5 +45,13 @@
   "secondLeft": "seconds left",
   "loading": "Loading...",
   "enter": "Enter",
-  "pleaseWait": "Please wait"
+  "pleaseWait": "Please wait",
+
+  "claimBonus": "Claim Bonus",
+  "claimCongratulationsTitle": "Congratulations!",
+  "claimCongratulationsText": "Your reward is on its way — expect it in your balance within 24 hours.",
+  "ok": "OK",
+  "nextDrawStartsInTitle": "Next draw starts in",
+  "hourShort": "h",
+  "minuteShort": "m"
 }

@@ -1,8 +1,27 @@
 // src/components/ClaimBonusModal.jsx
+import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
+
 export default function ClaimBonusModal({ open, amount = 500, onConfirm }) {
+  const { t } = useTranslation();
+
+  useEffect(() => {
+    if (open) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
   if (!open) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="claim-title"
+    >
       <div className="relative w-[90%] max-w-md rounded-3xl overflow-hidden h-[70vh]">
         {/* Фон модалки: responsive picture (из public/claim) */}
         <picture>
@@ -22,7 +41,6 @@ export default function ClaimBonusModal({ open, amount = 500, onConfirm }) {
             sizes="100vw"
             alt=""
             loading="lazy"
-            fetchpriority="low"
             decoding="async"
             className="w-full h-auto"
             aria-hidden="true"
@@ -48,25 +66,29 @@ export default function ClaimBonusModal({ open, amount = 500, onConfirm }) {
             sizes="50vw"
             alt="Trophy"
             loading="eager"
-            fetchpriority="high"
             decoding="async"
             className="absolute top-[30%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-1/2 h-auto pointer-events-none select-none"
             style={{ display: "block" }}
           />
         </picture>
 
-        {/* Текст и кнопка */}
-        <div className="absolute top-[70%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center text-white font-bold text-xl">
-          Congratulations!<br />
+        {/* Текст и сумма */}
+        <div
+          id="claim-title"
+          className="absolute top-[70%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center text-white font-bold text-xl"
+        >
+          {t("congratulations", "Congratulations!")}
+          <br />
           <span className="text-[#fffe45] text-6xl">€{amount}</span>
         </div>
 
+        {/* Кнопка */}
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[90%] grid grid-cols-1 gap-2">
           <button
             onClick={onConfirm}
-            className="py-3 rounded-full bg-[#fffe45] text-black font-extrabold text-lg shadow-lg"
+            className="py-3 rounded-full bg-[#fffe45] text-black font-extrabold text-lg shadow-lg active:scale-95 transition"
           >
-            Claim Bonus
+            {t("claimBonusButton", "Claim Bonus")}
           </button>
         </div>
       </div>

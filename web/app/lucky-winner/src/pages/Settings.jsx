@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 
 import { AuthCtx } from "../auth/TelegramProvider";
 import { api } from "../api/client";
-import { clearTokenNoReload, setAutoLoginDisabled } from "../auth/tokenStore"; // ← UPDATED
+import { clearTokenNoReload, setAutoLoginDisabled } from "../auth/tokenStore";
 
 import wall from "../assets/Wall.svg";
 import icProfile from "../assets/ic_Profile.svg";
@@ -16,7 +16,9 @@ import Header from "../components/Header";
 export default function Settings() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { token, setToken } = useContext(AuthCtx);
+
+  // ВАЖНО: берём также loading из провайдера, чтобы не редиректить раньше времени
+  const { token, setToken, loading: authLoading } = useContext(AuthCtx);
 
   const normalize = (lng) => (lng?.toLowerCase().startsWith("ru") ? "ru" : "en");
 
@@ -24,15 +26,19 @@ export default function Settings() {
   const [isLanguageOpen, setIsLanguageOpen] = useState(false);
   const [selectedLang, setSelectedLang] = useState(normalize(i18n.language));
 
-  // грузим профиль из бекенда и берём ID из выгрузок
+  // Поздняя проверка авторизации — редиректим только когда провайдер закончил инициализацию
+  useEffect(() => {
+    if (!authLoading && !token) {
+      navigate("/login", { replace: true });
+    }
+  }, [authLoading, token, navigate]);
+
+  // Грузим профиль из бэка только когда токен уже есть и инициализация закончилась
   useEffect(() => {
     let cancelled = false;
 
     const fetchMe = async () => {
-      if (!token) {
-        navigate("/login", { replace: true });
-        return;
-      }
+      if (authLoading || !token) return; // ждём окончания init и наличия токена
       try {
         const me = await api("/api/me", { token });
         if (cancelled) return;
@@ -45,13 +51,16 @@ export default function Settings() {
 
         setUserId(extId != null ? String(extId) : "—");
       } catch {
-        navigate("/login", { replace: true });
+        // если токен невалиден — отправим на логин после завершения инициализации
+        if (!authLoading) navigate("/login", { replace: true });
       }
     };
 
     fetchMe();
-    return () => { cancelled = true; };
-  }, [token, navigate]);
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, token, navigate]);
 
   const panelStyle = useMemo(
     () => ({
@@ -86,10 +95,9 @@ export default function Settings() {
 
   const handleLogout = async () => {
     try {
-      // 1) запретить silent login по initData ЗАРАНЕЕ
+      // 1) запретить silent-login по initData заранее
       await setAutoLoginDisabled(true);
-
-      // 2) просим бэкенд убрать refresh-cookie
+      // 2) попросить бэкенд убрать refresh-cookie
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     } catch {}
 
@@ -103,7 +111,12 @@ export default function Settings() {
 
   return (
     <div className="min-h-screen bg-[#151515] text-white flex flex-col relative">
-      <img src={wall} alt="" className="fixed inset-x-0 top-[-14%] w-full scale-30 object-cover z-0" />
+      <img
+        src={wall}
+        alt=""
+        className="fixed inset-x-0 top-[-14%] w-full scale-30 object-cover z-0"
+      />
+
       <Header />
 
       <div className="relative z-10 px-4 pt-4 pb-2">
@@ -146,12 +159,19 @@ export default function Settings() {
         {/* Language */}
         <div className="w-[90%] mx-auto space-y-4 pb-4">
           <div className="w-full overflow-hidden" style={panelStyle}>
-            <div className={`${rowBase} select-none cursor-pointer`} onClick={() => setIsLanguageOpen((v) => !v)}>
+            <div
+              className={`${rowBase} select-none cursor-pointer`}
+              onClick={() => setIsLanguageOpen((v) => !v)}
+            >
               <span className="flex items-center gap-2 min-w-0">
                 <img src={languageIcon} alt="Language" className="h-4 w-4" />
                 <span className="text-white">Language</span>
               </span>
-              <span className="ml-auto shrink-0 leading-none" style={{ fontSize: "28px", lineHeight: 1 }} aria-hidden>
+              <span
+                className="ml-auto shrink-0 leading-none"
+                style={{ fontSize: "28px", lineHeight: 1 }}
+                aria-hidden
+              >
                 {isLanguageOpen ? "▴" : "▾"}
               </span>
             </div>

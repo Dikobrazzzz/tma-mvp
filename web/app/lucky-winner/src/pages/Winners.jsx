@@ -59,11 +59,11 @@ export default function Winners() {
   // Маппинг вкладки -> диапазон бэкенда (смещаем дни)
   const rangeForTab = (key) => {
     switch (key) {
-      case "today":     return "yesterday";   // показываем вчера как "сегодня"
-      case "yesterday": return "day_minus_2"; // позавчера
+      case "today":     return "today";   
+      case "yesterday": return "yesterday";
       case "last7":     return "last7";
       case "top10":     return "last7";       // абсолютные топы за 7 дней
-      default:          return "yesterday";
+      default:          return "today";
     }
   };
 
@@ -184,7 +184,7 @@ export default function Winners() {
                     <span className="block">count</span>
                   </th>
                   <th className="py-2 text-center text-[10px] leading-tight">
-                    <span className="block">Total wins</span>
+                    <span className="block">Wins</span>
                     <span className="block">amount</span>
                   </th>
                   <th className="py-2 text-center text-[10px]">
