@@ -5,11 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build:hero": "node tools/build-hero.mjs",
-    "build:wall": "node tools/build-wall.mjs",
-    "build:claim": "node tools/build-claim.mjs",
-    "build:images": "npm run build:hero && npm run build:wall && npm run build:claim",
-    "prebuild": "npm run build:images",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -36,6 +31,7 @@
     "postcss": "^8.5.6",
     "puppeteer": "^24.28.0",
     "sharp": "^0.34.4",
+    "svgo": "^4.0.0",
     "tailwindcss": "^3.4.18",
     "vite": "^7.1.7"
   }

@@ -12,7 +12,6 @@ export default function ProgressBar({ value = 0, amount = 0, currency = "€" })
     <div
       className="relative rounded-3xl p-3 flex items-center justify-between gap-3"
       style={{
-        // центр — ровный, рамка — лёгкий вертикальный градиент
         background:
           "linear-gradient(#151515, #151515) padding-box, " +
           "linear-gradient(to bottom, rgba(255,255,255,0.22), #151515) border-box",
@@ -26,8 +25,12 @@ export default function ProgressBar({ value = 0, amount = 0, currency = "€" })
       {/* Прогресс-бар слева (серый трек + красная линия) */}
       <div
         className="flex-1 h-4 rounded-full overflow-hidden"
-        style={{ backgroundColor: "#3A3A3A" }} // серый трек
+        style={{ backgroundColor: "#3A3A3A" }}
         aria-label="progress"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(pct)}
+        role="progressbar"
       >
         <div
           className="h-full rounded-full transition-[width] duration-500 ease-in-out"

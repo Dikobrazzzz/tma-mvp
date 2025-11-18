@@ -56,22 +56,26 @@ export default function Winners() {
     top10: t("top10Win"),
   };
 
-  // Маппинг вкладки -> диапазон бэкенда (смещаем дни)
+  // Маппинг вкладки -> диапазон бэкенда
   const rangeForTab = (key) => {
     switch (key) {
-      case "today":     return "today";   
-      case "yesterday": return "yesterday";
-      case "last7":     return "last7";
-      case "top10":     return "last7";       // абсолютные топы за 7 дней
-      default:          return "today";
+      case "today":
+        return "today";
+      case "yesterday":
+        return "yesterday";
+      case "last7":
+        return "last7";
+      case "top10":
+        return "last7";
+      default:
+        return "today";
     }
   };
 
-  // Сколько строк показывать на вкладке
   const capForTab = (key) => {
     if (key === "last7") return 50;
     if (key === "top10") return 10;
-    return 25; // today/yesterday — по 25
+    return 25;
   };
 
   useEffect(() => {
@@ -80,8 +84,6 @@ export default function Winners() {
       setLoading(true);
       try {
         const range = rangeForTab(tab);
-        // используем уже существующую ручку агрегатов
-        // (/api/winners возвращает массив { email_norm, win_count, win_amount, claimed? })
         const res = await api(`/api/winners?range=${encodeURIComponent(range)}`);
         if (cancelled) return;
 
@@ -102,10 +104,8 @@ export default function Winners() {
           };
         });
 
-        // Жёсткий лимит на клиенте (на случай если бэкенд вернёт больше)
         rows = rows.slice(0, capForTab(tab));
 
-        // Для top10 — на всякий случай отсортируем по сумме убыв.
         if (tab === "top10") {
           rows.sort((a, b) => {
             const av = Number(String(a.wins).replace(/[^\d.]/g, "")) || 0;
@@ -124,7 +124,7 @@ export default function Winners() {
     return () => {
       cancelled = true;
     };
-  }, [tab]);
+  }, [tab, token]); // token на всякий
 
   if (loading) {
     return (
@@ -135,90 +135,115 @@ export default function Winners() {
   }
 
   return (
-    <div className="min-h-screen bg-[#151515] text-white flex flex-col relative">
-      {/* Фон */}
-      <img
-        src={wall}
-        alt=""
-        className="fixed inset-x-0 top-[-14%] w-full scale-30 object-cover z-0"
-      />
+    <div className="min-h-screen bg-[#151515] text-white flex flex-col">
+      {/* HERO — Wall.svg как фон, аналогично Home */}
+      <div className="relative flex-shrink-0 overflow-hidden">
+        <img
+          src={wall}
+          alt="Lucky Winner winners background"
+          loading="eager"
+          fetchpriority="high"
+          decoding="async"
+          className="w-full h-[66vh] min-h-[500px] md:h-[70vh] object-cover rounded-b-[48px] select-none pointer-events-none"
+          style={{
+            objectPosition: "50% -70%",   // подняли фон
+            transform: "translateY(-160px)",
+          }}
+        />
 
-      <Header />
-
-      {/* Заголовок — сверху */}
-      <div className="relative z-10 px-4 pt-4 pb-2">
-        <h1 className="text-3xl font-bold text-white flex items-center gap-2">
-          <img src={icWinners} alt="" className="h-9 w-9" />
-          {t("winners")}
-        </h1>
+        <div className="absolute inset-x-0 top-0 z-10">
+          <Header />
+        </div>
       </div>
 
-      {/* Контент сдвинут на 12vh вниз */}
-      <div className="relative z-10 mt-[12vh] flex flex-col items-center">
-        {/* Табы — по центру */}
-        <div className="flex gap-3 flex-wrap justify-center mb-4">
-          {Object.entries(tabs).map(([key, label]) => (
-            <Tab key={key} active={tab === key} onClick={() => setTab(key)}>
-              {label}
-            </Tab>
-          ))}
+      {/* КОНТЕНТ — заезжает на фон, как на Home */}
+      <div className="-mt-[68vh] sm:-mt-[200px] md:-mt-[240px] lg:-mt-[280px] relative z-10">
+        {/* Заголовок */}
+        <div className="px-4 pt-4 pb-2">
+          <h1 className="text-3xl font-bold text-white flex items-center gap-2">
+            <img src={icWinners} alt="" className="h-9 w-9" />
+            {t("winners")}
+          </h1>
         </div>
 
-        {/* Таблица */}
-        <div
-          className="w-[90%] mx-auto rounded-3xl overflow-hidden shadow-lg"
-          style={{
-            backgroundColor: "#1A1A1A",
-            border: "1px solid rgba(255,255,255,0.1)",
-            boxShadow: "0 0 20px rgba(0,0,0,0.3)",
-          }}
-        >
-          <div className="overflow-y-auto px-4">
-            <table className="w-full table-fixed text-[6px] text-[#8C8C8C]">
-              <thead>
-                <tr className="text-[#FFFE45]">
-                  <th className="py-2 text-center text-[10px]">{t("number")}</th>
-                  <th className="py-2 text-left   text-[10px]">{t("userId")}</th>
-                  <th className="py-2 text-center text-[10px] leading-tight">
-                    <span className="block">Total wins</span>
-                    <span className="block">count</span>
-                  </th>
-                  <th className="py-2 text-center text-[10px] leading-tight">
-                    <span className="block">Wins</span>
-                    <span className="block">amount</span>
-                  </th>
-                  <th className="py-2 text-center text-[10px]">
-                    {t("claimed", "Claimed")}
-                  </th>
-                </tr>
-              </thead>
+        {/* Остальной контент — чуть опустили вниз */}
+        <div className="mt-20 md:mt-24 flex flex-col items-center px-4 pb-6">
+          {/* Табы */}
+          <div className="flex gap-3 flex-wrap justify-center mb-4">
+            {Object.entries(tabs).map(([key, label]) => (
+              <Tab key={key} active={tab === key} onClick={() => setTab(key)}>
+                {label}
+              </Tab>
+            ))}
+          </div>
 
-              <tbody>
-                {data.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-4 text-center text-[10px]">
-                      {t("noData")}
-                    </td>
+          {/* Таблица */}
+          <div
+            className="w-full max-w-[90%] mx-auto rounded-3xl overflow-hidden shadow-lg"
+            style={{
+              backgroundColor: "#1A1A1A",
+              border: "1px solid rgba(255,255,255,0.1)",
+              boxShadow: "0 0 20px rgba(0,0,0,0.3)",
+            }}
+          >
+            <div className="overflow-y-auto px-4">
+              <table className="w-full table-fixed text-[6px] text-[#8C8C8C]">
+                <thead>
+                  <tr className="text-[#FFFE45]">
+                    <th className="py-2 text-center text-[10px]">
+                      {t("number")}
+                    </th>
+                    <th className="py-2 text-left text-[10px]">
+                      {t("userId")}
+                    </th>
+                    <th className="py-2 text-center text-[10px] leading-tight">
+                      <span className="block">Total wins</span>
+                      <span className="block">count</span>
+                    </th>
+                    <th className="py-2 text-center text-[10px] leading-tight">
+                      <span className="block">Wins</span>
+                      <span className="block">amount</span>
+                    </th>
+                    <th className="py-2 text-center text-[10px]">
+                      {t("claimed", "Claimed")}
+                    </th>
                   </tr>
-                ) : (
-                  data.map((item, i) => (
-                    <tr key={i} className="border-b border-white/10">
-                      <td className="py-2 text-[13px] text-center">{item.n}</td>
-                      <td className="py-2 text-[13px] text-left truncate">
-                        {item.user}
-                      </td>
-                      <td className="py-2 text-[13px] text-center">
-                        {item.count}
-                      </td>
-                      <td className="py-2 text-[13px] text-center">{item.wins}</td>
-                      <td className="py-2 text-[13px] text-center">
-                        {item.claimed ? t("yes", "Yes") : t("no", "No")}
+                </thead>
+
+                <tbody>
+                  {data.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className="py-4 text-center text-[10px]"
+                      >
+                        {t("noData")}
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    data.map((item, i) => (
+                      <tr key={i} className="border-b border-white/10">
+                        <td className="py-2 text-[13px] text-center">
+                          {item.n}
+                        </td>
+                        <td className="py-2 text-[13px] text-left truncate">
+                          {item.user}
+                        </td>
+                        <td className="py-2 text-[13px] text-center">
+                          {item.count}
+                        </td>
+                        <td className="py-2 text-[13px] text-center">
+                          {item.wins}
+                        </td>
+                        <td className="py-2 text-[13px] text-center">
+                          {item.claimed ? t("yes", "Yes") : t("no", "No")}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

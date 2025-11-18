@@ -20,7 +20,8 @@ export default function Settings() {
   // ВАЖНО: берём также loading из провайдера, чтобы не редиректить раньше времени
   const { token, setToken, loading: authLoading } = useContext(AuthCtx);
 
-  const normalize = (lng) => (lng?.toLowerCase().startsWith("ru") ? "ru" : "en");
+  const normalize = (lng) =>
+    lng?.toLowerCase().startsWith("ru") ? "ru" : "en";
 
   const [userId, setUserId] = useState("");
   const [isLanguageOpen, setIsLanguageOpen] = useState(false);
@@ -72,7 +73,8 @@ export default function Settings() {
     []
   );
 
-  const rowBase = "w-full flex flex-nowrap items-center justify-between px-4 py-2 text-sm";
+  const rowBase =
+    "w-full flex flex-nowrap items-center justify-between px-4 py-2 text-sm";
 
   const itemStyle = (active) => ({
     fontSize: "14px",
@@ -98,7 +100,10 @@ export default function Settings() {
       // 1) запретить silent-login по initData заранее
       await setAutoLoginDisabled(true);
       // 2) попросить бэкенд убрать refresh-cookie
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
     } catch {}
 
     // 3) очистить локальный access-токен БЕЗ перезагрузки WebView
@@ -110,117 +115,147 @@ export default function Settings() {
   };
 
   return (
-    <div className="min-h-screen bg-[#151515] text-white flex flex-col relative">
-      <img
-        src={wall}
-        alt=""
-        className="fixed inset-x-0 top-[-14%] w-full scale-30 object-cover z-0"
-      />
+    <div className="min-h-screen bg-[#151515] text-white flex flex-col">
+      {/* HERO — Wall.svg как фон (как в Home/Winners/Profile) */}
+      <div className="relative flex-shrink-0 overflow-hidden">
+        <img
+          src={wall}
+          alt="Lucky Winner settings background"
+          loading="eager"
+          fetchpriority="high"
+          decoding="async"
+          className="w-full h-[66vh] min-h-[500px] md:h-[70vh] object-cover rounded-b-[48px] select-none pointer-events-none"
+          style={{
+            objectPosition: "50% -70%",
+            transform: "translateY(-160px)",
+          }}
+        />
 
-      <Header />
-
-      <div className="relative z-10 px-4 pt-4 pb-2">
-        <h1 className="text-3xl font-bold text-white flex items-center gap-2">
-          <img src={icProfile} alt="" className="h-9 w-9" />
-          {t("settings")}
-        </h1>
+        <div className="absolute inset-x-0 top-0 z-10">
+          <Header />
+        </div>
       </div>
 
-      <div className="relative z-10 mt-[10vh]">
-        {/* userId + Back */}
-        <div className="pt-4 pb-4">
-          <div className="w-[90%] mx-auto px-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs opacity-70">{t("userId")}</div>
-                <div className="text-sm font-semibold">{userId || "—"}</div>
+      {/* КОНТЕНТ — заезжает на фон, как в Home/Winners */}
+      <div className="-mt-[68vh] sm:-mt-[200px] md:-mt-[240px] lg:-mt-[280px] relative z-10">
+        {/* Заголовок (Settings + иконка) — оставляем на своём месте */}
+        <div className="px-4 pt-4 pb-2">
+          <h1 className="text-3xl font-bold text-white flex items-center gap-2">
+            <img src={icProfile} alt="" className="h-9 w-9" />
+            {t("settings")}
+          </h1>
+        </div>
+
+        {/* ВЕСЬ ОСТАЛЬНЫЙ КОНТЕНТ — ОПУСКАЕМ НИЖЕ */}
+        <div className="mt-14 md:mt-12 lg:mt-16">
+          {/* userId + Back */}
+          <div className="pt-4 pb-4">
+            <div className="w-[90%] mx-auto px-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs opacity-70">{t("userId")}</div>
+                  <div className="text-sm font-semibold">
+                    {userId || "—"}
+                  </div>
+                </div>
+
+                <button
+                  className="ml-auto inline-flex items-center justify-center rounded-3xl px-3 h-8 font-semibold"
+                  style={{
+                    background:
+                      "linear-gradient(#151515, #151515) padding-box, " +
+                      "linear-gradient(to bottom, rgba(255,255,255,0.22), #151515) border-box",
+                    border: "1px solid transparent",
+                    boxShadow:
+                      "0 1px 2px rgba(0,0,0,0.18), " +
+                      "0 3.5px 7px rgba(0,0,0,0.16), " +
+                      "0 8px 15px rgba(0,0,0,0.14)",
+                  }}
+                  onClick={() => navigate("/profile")}
+                >
+                  <span className="text-[#FFFE45] text-xs leading-none">
+                    {t("back")}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Language */}
+          <div className="w-[90%] mx-auto space-y-4 pb-4">
+            <div className="w-full overflow-hidden" style={panelStyle}>
+              <div
+                className={`${rowBase} select-none cursor-pointer`}
+                onClick={() => setIsLanguageOpen((v) => !v)}
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <img
+                    src={languageIcon}
+                    alt="Language"
+                    className="h-4 w-4"
+                  />
+                  <span className="text-white">Language</span>
+                </span>
+                <span
+                  className="ml-auto shrink-0 leading-none"
+                  style={{ fontSize: "28px", lineHeight: 1 }}
+                  aria-hidden
+                >
+                  {isLanguageOpen ? "▴" : "▾"}
+                </span>
               </div>
 
-              <button
-                className="ml-auto inline-flex items-center justify-center rounded-3xl px-3 h-8 font-semibold"
-                style={{
-                  background:
-                    "linear-gradient(#151515, #151515) padding-box, " +
-                    "linear-gradient(to bottom, rgba(255,255,255,0.22), #151515) border-box",
-                  border: "1px solid transparent",
-                  boxShadow:
-                    "0 1px 2px rgba(0,0,0,0.18), " +
-                    "0 3.5px 7px rgba(0,0,0,0.16), " +
-                    "0 8px 15px rgba(0,0,0,0.14)",
-                }}
-                onClick={() => navigate("/profile")}
-              >
-                <span className="text-[#FFFE45] text-xs leading-none">{t("back")}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Language */}
-        <div className="w-[90%] mx-auto space-y-4 pb-4">
-          <div className="w-full overflow-hidden" style={panelStyle}>
-            <div
-              className={`${rowBase} select-none cursor-pointer`}
-              onClick={() => setIsLanguageOpen((v) => !v)}
-            >
-              <span className="flex items-center gap-2 min-w-0">
-                <img src={languageIcon} alt="Language" className="h-4 w-4" />
-                <span className="text-white">Language</span>
-              </span>
-              <span
-                className="ml-auto shrink-0 leading-none"
-                style={{ fontSize: "28px", lineHeight: 1 }}
-                aria-hidden
-              >
-                {isLanguageOpen ? "▴" : "▾"}
-              </span>
-            </div>
-
-            {isLanguageOpen && <div className="border-t border-white/10" />}
-
-            <div
-              className="transition-all duration-200"
-              style={{
-                paddingLeft: isLanguageOpen ? "1rem" : 0,
-                paddingRight: isLanguageOpen ? "1rem" : 0,
-                maxHeight: isLanguageOpen ? 200 : 0,
-                paddingTop: isLanguageOpen ? "0.5rem" : 0,
-                paddingBottom: isLanguageOpen ? "0.5rem" : 0,
-                overflow: "hidden",
-              }}
-            >
               {isLanguageOpen && (
-                <div className="flex flex-col">
-                  <button
-                    className="w-full flex items-center py-2 leading-none"
-                    style={itemStyle(selectedLang === "en")}
-                    onClick={() => handleLanguageSelect("en")}
-                  >
-                    {t("language.en")}
-                  </button>
-                  <div className="border-t border-white/10 -mx-4" />
-                  <button
-                    className="w-full flex items-center py-2 leading-none"
-                    style={itemStyle(selectedLang === "ru")}
-                    onClick={() => handleLanguageSelect("ru")}
-                  >
-                    {t("language.ru")}
-                  </button>
-                </div>
+                <div className="border-t border-white/10" />
               )}
+
+              <div
+                className="transition-all duration-200"
+                style={{
+                  paddingLeft: isLanguageOpen ? "1rem" : 0,
+                  paddingRight: isLanguageOpen ? "1rem" : 0,
+                  maxHeight: isLanguageOpen ? 200 : 0,
+                  paddingTop: isLanguageOpen ? "0.5rem" : 0,
+                  paddingBottom: isLanguageOpen ? "0.5rem" : 0,
+                  overflow: "hidden",
+                }}
+              >
+                {isLanguageOpen && (
+                  <div className="flex flex-col">
+                    <button
+                      className="w-full flex items-center py-2 leading-none"
+                      style={itemStyle(selectedLang === "en")}
+                      onClick={() => handleLanguageSelect("en")}
+                    >
+                      {t("language.en")}
+                    </button>
+                    <div className="border-t border-white/10 -mx-4" />
+                    <button
+                      className="w-full flex items-center py-2 leading-none"
+                      style={itemStyle(selectedLang === "ru")}
+                      onClick={() => handleLanguageSelect("ru")}
+                    >
+                      {t("language.ru")}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Go out — фиксировано, 14vh от нижнего края */}
-        <div className="fixed left-4 flex justify-start" style={{ bottom: "14vh" }}>
-          <button
-            className="flex items-center outline-none focus:outline-none border-none bg-transparent hover:bg-transparent active:bg-transparent"
-            onClick={handleLogout}
+          {/* Go out — фиксировано, как и было */}
+          <div
+            className="fixed left-4 flex justify-start"
+            style={{ bottom: "14vh" }}
           >
-            <img src={exit} alt="Exit" className="h-5 w-5 mr-2" />
-            <span className="text-white text-xs">{t("goOut")}</span>
-          </button>
+            <button
+              className="flex items-center outline-none focus:outline-none border-none bg-transparent hover:bg-transparent active:bg-transparent"
+              onClick={handleLogout}
+            >
+              <img src={exit} alt="Exit" className="h-5 w-5 mr-2" />
+              <span className="text-white text-xs">{t("goOut")}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

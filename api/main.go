@@ -96,6 +96,8 @@ func main() {
 		api.POST("/verify/check", s.VerifyCheck)
                 api.POST("/analytics/email-not-found", s.EmailNotFoundShown)
 
+                api.GET("/ui-progress", s.UIProgress)
+
 		// уже есть в твоих файлах
 		api.POST("/auth/tg-init", s.TgInitLogin)
 		api.POST("/auth/refresh", s.Refresh)
@@ -128,59 +130,84 @@ func main() {
 // --- migrations --------------------------------------------------------------
 
 func runMigrations(ctx context.Context, db *pgxpool.Pool) error {
-	// winners extras + индексы
-	if _, err := db.Exec(ctx, `
-		ALTER TABLE IF EXISTS public.lw_winners
-		  ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
-		CREATE INDEX IF NOT EXISTS lw_winners_email_comp_rank
-		  ON public.lw_winners (email_norm, computed_at DESC, rank ASC);
-		CREATE INDEX IF NOT EXISTS lw_winners_email_claimed_null
-		  ON public.lw_winners (email_norm) WHERE claimed_at IS NULL;
-	`); err != nil {
-		return fmt.Errorf("winners extras: %w", err)
-	}
+        // winners extras + индексы
+        if _, err := db.Exec(ctx, `
+                ALTER TABLE IF EXISTS public.lw_winners
+                  ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
+                CREATE INDEX IF NOT EXISTS lw_winners_email_comp_rank
+                  ON public.lw_winners (email_norm, computed_at DESC, rank ASC);
+                CREATE INDEX IF NOT EXISTS lw_winners_email_claimed_null
+                  ON public.lw_winners (email_norm) WHERE claimed_at IS NULL;
+        `); err != nil {
+                return fmt.Errorf("winners extras: %w", err)
+        }
 
-	// одноразовый флаг показа модалки (по email_norm)
-	if _, err := db.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS claim_denied_oneoff (
-			email_norm CITEXT PRIMARY KEY,
-			shown_at   TIMESTAMPTZ
-		);
-	`); err != nil {
-		return fmt.Errorf("claim_denied_oneoff: %w", err)
-	}
+        // одноразовый флаг показа модалки (по email_norm)
+        if _, err := db.Exec(ctx, `
+                CREATE TABLE IF NOT EXISTS claim_denied_oneoff (
+                        email_norm CITEXT PRIMARY KEY,
+                        shown_at   TIMESTAMPTZ
+                );
+        `); err != nil {
+                return fmt.Errorf("claim_denied_oneoff: %w", err)
+        }
 
-	// safety: users.balance (если пригодится)
-	if _, err := db.Exec(ctx, `
-		ALTER TABLE IF EXISTS users
-		ADD COLUMN IF NOT EXISTS balance NUMERIC(12,2) NOT NULL DEFAULT 0
-	`); err != nil {
-		return fmt.Errorf("users.balance: %w", err)
-	}
+        // safety: users.balance (если пригодится)
+        if _, err := db.Exec(ctx, `
+                ALTER TABLE IF EXISTS users
+                ADD COLUMN IF NOT EXISTS balance NUMERIC(12,2) NOT NULL DEFAULT 0
+        `); err != nil {
+                return fmt.Errorf("users.balance: %w", err)
+        }
 
-	// аналитика логинов/модалок
-	if _, err := db.Exec(ctx, `
-	  CREATE TABLE IF NOT EXISTS auth_login_events (
-	    id          bigserial PRIMARY KEY,
-	    ts          timestamptz NOT NULL DEFAULT now(),
-	    email_norm  citext      NOT NULL,
-	    user_id     bigint,
-	    event_type  text        NOT NULL, -- 'login_ok' | 'email_not_found_modal' | 'email_check_not_allowed' | 'otp_send_ok' | 'otp_send_fail'
-	    source      text,                 -- 'tma', 'web', 'api', ...
-	    ip          inet,
-	    user_agent  text,
-	    extra       jsonb       NOT NULL DEFAULT '{}'::jsonb
-	  );
+        // аналитика логинов/модалок
+        if _, err := db.Exec(ctx, `
+          CREATE TABLE IF NOT EXISTS auth_login_events (
+            id          bigserial PRIMARY KEY,
+            ts          timestamptz NOT NULL DEFAULT now(),
+            email_norm  citext      NOT NULL,
+            user_id     bigint,
+            event_type  text        NOT NULL, -- 'login_ok' | 'email_not_found_modal' | 'email_check_not_allowed' | 'otp_send_ok' | 'otp_send_fail'
+            source      text,                 -- 'tma', 'web', 'api', ...
+            ip          inet,
+            user_agent  text,
+            extra       jsonb       NOT NULL DEFAULT '{}'::jsonb
+          );
 
-	  CREATE INDEX IF NOT EXISTS ale_ts_idx        ON auth_login_events (ts DESC);
-	  CREATE INDEX IF NOT EXISTS ale_email_idx     ON auth_login_events (email_norm);
-	  CREATE INDEX IF NOT EXISTS ale_type_idx      ON auth_login_events (event_type);
-	  CREATE INDEX IF NOT EXISTS ale_email_type_ts ON auth_login_events (email_norm, event_type, ts DESC);
-	`); err != nil {
-		return fmt.Errorf("auth_login_events: %w", err)
-	}
+          CREATE INDEX IF NOT EXISTS ale_ts_idx        ON auth_login_events (ts DESC);
+          CREATE INDEX IF NOT EXISTS ale_email_idx     ON auth_login_events (email_norm);
+          CREATE INDEX IF NOT EXISTS ale_type_idx      ON auth_login_events (event_type);
+          CREATE INDEX IF NOT EXISTS ale_email_type_ts ON auth_login_events (email_norm, event_type, ts DESC);
+        `); err != nil {
+                return fmt.Errorf("auth_login_events: %w", err)
+        }
 
-	return nil
+        // дневной прогресс UI: кумулятивный банк до 5000 €
+        if _, err := db.Exec(ctx, `
+          CREATE TABLE IF NOT EXISTS public.ui_progress (
+            draw_id    date PRIMARY KEY,
+            amount_eur numeric(12,2) NOT NULL DEFAULT 0,
+            updated_at timestamptz   NOT NULL DEFAULT now()
+          );
+
+          -- защитный триггер-кап (на случай ручных апдейтов)
+          CREATE OR REPLACE FUNCTION public.ui_progress_cap()
+          RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            IF NEW.amount_eur > 5000 THEN NEW.amount_eur := 5000; END IF;
+            IF NEW.amount_eur < 0   THEN NEW.amount_eur := 0;   END IF;
+            RETURN NEW;
+          END$$;
+
+          DROP TRIGGER IF EXISTS ui_progress_cap_trg ON public.ui_progress;
+          CREATE TRIGGER ui_progress_cap_trg
+          BEFORE INSERT OR UPDATE ON public.ui_progress
+          FOR EACH ROW EXECUTE FUNCTION public.ui_progress_cap();
+        `); err != nil {
+                return fmt.Errorf("ui_progress: %w", err)
+        }
+
+        return nil
 }
 
 
@@ -668,15 +695,28 @@ func (s *Server) MeProtected(c *gin.Context) {
 		ledgerPtr = &v
 	}
 
-	// ФЛАГ одноразовой модалки: shown_at IS NULL → показать
+	// Показываем модалку ТОЛЬКО если:
+	// 1) есть незаклеймленный выигрыш за сегодняшнюю дату (UTC),
+	// 2) и в claim_denied_oneoff нет отметки shown_at (NULL).
+	today := time.Now().UTC().Format("2006-01-02")
 	var shouldShow bool
 	_ = s.DB.QueryRow(c, `
-		SELECT EXISTS(
-		  SELECT 1
-		  FROM claim_denied_oneoff
-		  WHERE email_norm = $1::citext AND shown_at IS NULL
-		)
-	`, emailNorm).Scan(&shouldShow)
+		SELECT
+		  EXISTS (
+		    SELECT 1
+		    FROM public.lw_winners w
+		    WHERE w.email_norm = $1::citext
+		      AND w.draw_id    = $2
+		      AND w.claimed_at IS NULL
+		  )
+		  AND
+		  EXISTS (
+		    SELECT 1
+		    FROM public.claim_denied_oneoff cdo
+		    WHERE cdo.email_norm = $1::citext
+		      AND cdo.shown_at IS NULL
+		  ) AS should_show
+	`, emailNorm, today).Scan(&shouldShow)
 
 	c.JSON(200, gin.H{
 		"email":                    emailNorm,
@@ -685,7 +725,7 @@ func (s *Server) MeProtected(c *gin.Context) {
 		"ledger_user_id":           ledgerPtr,
 		"auth_user_id":             nil,
 		"external_id":              ledgerPtr,
-		"should_show_claim_denied": shouldShow, // ← ВОТ ЭТО ВАЖНО
+		"should_show_claim_denied": shouldShow,
 	})
 }
 
@@ -777,114 +817,186 @@ func (s *Server) ClaimDeniedAck(c *gin.Context) {
 	c.JSON(200, gin.H{"ok": true})
 }
 
+func (s *Server) UIProgress(c *gin.Context) {
+	const capEUR = 5000.0
+
+	now := time.Now().UTC()
+	todayStr := now.Format("2006-01-02")
+
+	var totalPrizes, totalClaimed sql.NullFloat64
+
+	// Считаем суммарный "банк" и суммарно заклеймленное за ВСЕ
+	// draw_id < сегодня (т.е. за полностью завершённые дни).
+	err := s.DB.QueryRow(c, `
+		SELECT
+		  COALESCE(SUM(amount_eur), 0)::float8 AS total_prizes,
+		  COALESCE(SUM(CASE WHEN claimed_at IS NOT NULL THEN amount_eur ELSE 0 END), 0)::float8 AS total_claimed
+		FROM public.lw_winners
+		WHERE draw_id ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+		  AND draw_id::date < $1::date
+	`, todayStr).Scan(&totalPrizes, &totalClaimed)
+
+	if err != nil && !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, pgx.ErrNoRows) {
+		c.JSON(500, gin.H{"error": "db_error"})
+		return
+	}
+
+	tp := 0.0
+	tc := 0.0
+	if totalPrizes.Valid {
+		tp = totalPrizes.Float64
+	}
+	if totalClaimed.Valid {
+		tc = totalClaimed.Float64
+	}
+
+	// Накопленный "не заклеймленный" банк
+	amount := tp - tc
+	if amount < 0 {
+		amount = 0
+	}
+	if amount > capEUR {
+		amount = capEUR
+	}
+
+	// Следующий «шаг» прогресса — в 00:01 UTC следующего дня
+	resetAt := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 1, 0, 0, time.UTC)
+
+	c.JSON(200, gin.H{
+		"draw_id":      todayStr,                  // просто "сегодня", можно не использовать на фронте
+		"amount_eur":   amount,                    // накопленный банк 0..5000
+		"cap_eur":      capEUR,                    // фронт делит на это
+		"reset_at_utc": resetAt.Format(time.RFC3339),
+	})
+}
+
+
 func (s *Server) ClaimBonus(c *gin.Context) {
-    uidAny, _ := c.Get("user_id")
-    userID, ok := uidAny.(int64)
-    if !ok {
-        c.JSON(401, gin.H{"error": "unauthorized"})
-        return
-    }
-    var req struct {
-        Amount float64 `json:"amount"`
-        Reason string  `json:"reason"`
-    }
-    if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
-        c.JSON(400, gin.H{"error": "bad request"})
-        return
-    }
-    if req.Amount <= 0 {
-        c.JSON(400, gin.H{"error": "amount must be > 0"})
-        return
-    }
-    if strings.TrimSpace(req.Reason) == "" {
-        req.Reason = "bonus"
-    }
+	uidAny, _ := c.Get("user_id")
+	userID, ok := uidAny.(int64)
+	if !ok {
+		c.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
 
-    // Нужен email_norm для записи в lw_winners
-    emailNorm, err := getEmailNormFromCtxOrDB(c, s.DB)
-    if err != nil || emailNorm == "" {
-        c.JSON(401, gin.H{"error": "unauthorized_no_email"})
-        return
-    }
+	var req struct {
+		Amount float64 `json:"amount"`
+		Reason string  `json:"reason"`
+	}
+	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
+		c.JSON(400, gin.H{"error": "bad request"})
+		return
+	}
+	if req.Amount <= 0 {
+		c.JSON(400, gin.H{"error": "amount must be > 0"})
+		return
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		req.Reason = "bonus"
+	}
 
-    ctx := c.Request.Context()
-    tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{})
-    if err != nil {
-        c.JSON(500, gin.H{"error": "tx begin error"})
-        return
-    }
-    defer func() { _ = tx.Rollback(ctx) }()
+	// Нужен email_norm
+	emailNorm, err := getEmailNormFromCtxOrDB(c, s.DB)
+	if err != nil || emailNorm == "" {
+		c.JSON(401, gin.H{"error": "unauthorized_no_email"})
+		return
+	}
 
-    // 1) Денежная часть — как было
-    if _, err := tx.Exec(ctx, `
-        INSERT INTO wallet_ledger(user_id, amount_eur, reason)
-        VALUES($1, $2, $3)
-    `, userID, req.Amount, req.Reason); err != nil {
-        c.JSON(500, gin.H{"error": "insert ledger error"})
-        return
-    }
-    if _, err := tx.Exec(ctx, `
-        UPDATE users SET balance = COALESCE(balance,0) + $1 WHERE id=$2
-    `, req.Amount, userID); err != nil {
-        c.JSON(500, gin.H{"error": "update balance error"})
-        return
-    }
+	today := time.Now().UTC().Format("2006-01-02")
 
-    // 2) Видимость в My Winnings:
-    //    фиксируем/обновляем запись в lw_winners на сегодняшнюю дату (draw_id = YYYY-MM-DD)
-    drawID := time.Now().UTC().Format("2006-01-02")
-    // Попробуем обновить уже существующую "bonus" запись на сегодня, иначе вставим новую
-    // (при желании можно завести UNIQUE (email_norm, draw_id, reason))
-    cmdTag, err := tx.Exec(ctx, `
-        UPDATE public.lw_winners
-           SET amount_eur = $1,
-               user_id    = $2,
-               reason     = 'bonus',
-               computed_at= NOW(),
-               claimed_at = COALESCE(claimed_at, NOW())
-         WHERE draw_id    = $3
-           AND email_norm = $4::citext
-           AND reason     = 'bonus'
-    `, req.Amount, userID, drawID, emailNorm)
-    if err != nil {
-        c.JSON(500, gin.H{"error": "winners update error"})
-        return
-    }
-    if cmdTag.RowsAffected() == 0 {
-        // Вставляем новую «заклейменную» запись
-        _, err = tx.Exec(ctx, `
-            INSERT INTO public.lw_winners
-                (draw_id, email_norm, user_id, amount_eur, rank, reason, computed_at, claimed_at)
-            VALUES ($1,      $2::citext, $3,      $4,        0,    'bonus', NOW(),      NOW())
-        `, drawID, emailNorm, userID, req.Amount)
-        if err != nil {
-            c.JSON(500, gin.H{"error": "winners insert error"})
-            return
-        }
-    }
+	ctx := c.Request.Context()
+	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		c.JSON(500, gin.H{"error": "tx begin error"})
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
-    // 3) Уведомление — как было
-    payload := map[string]any{
-        "event":      "claim_bonus",
-        "user_id":    userID,
-        "amount_eur": req.Amount,
-        "reason":     req.Reason,
-        "ts":         time.Now().UTC(),
-    }
-    if b, _ := json.Marshal(payload); len(b) > 0 {
-        _, _ = tx.Exec(ctx, `SELECT pg_notify('lw_winner_events', $1)`, string(b))
-    }
+	// 0) Проверяем, что у пользователя действительно есть незаклеймленный выигрыш за сегодня
+	var existToday bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1
+		  FROM public.lw_winners
+		  WHERE email_norm = $1::citext
+		    AND draw_id    = $2
+		    AND claimed_at IS NULL
+		)
+	`, emailNorm, today).Scan(&existToday); err != nil {
+		c.JSON(500, gin.H{"error": "db error"})
+		return
+	}
+	if !existToday {
+		c.JSON(403, gin.H{"error": "not_available_today"})
+		return
+	}
 
-    var newBal float64
-    if err := tx.QueryRow(ctx, `SELECT COALESCE(balance,0) FROM users WHERE id=$1`, userID).Scan(&newBal); err != nil {
-        c.JSON(500, gin.H{"error": "get balance error"})
-        return
-    }
-    if err := tx.Commit(ctx); err != nil {
-        c.JSON(500, gin.H{"error": "tx commit error"})
-        return
-    }
-    c.JSON(200, gin.H{"new_balance": newBal})
+	// 1) Денежная часть
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO wallet_ledger(user_id, amount_eur, reason)
+		VALUES($1, $2, $3)
+	`, userID, req.Amount, req.Reason); err != nil {
+		c.JSON(500, gin.H{"error": "insert ledger error"})
+		return
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE users SET balance = COALESCE(balance,0) + $1 WHERE id=$2
+	`, req.Amount, userID); err != nil {
+		c.JSON(500, gin.H{"error": "update balance error"})
+		return
+	}
+
+	// 2) Помечаем «сегодняшний» выигрыш(и) как заклеймленные и привязываем user_id.
+	cmdTag, err := tx.Exec(ctx, `
+		UPDATE public.lw_winners
+		   SET claimed_at = COALESCE(claimed_at, NOW()),
+		       user_id    = COALESCE(user_id, $1)
+		 WHERE email_norm = $2::citext
+		   AND draw_id    = $3
+		   AND claimed_at IS NULL
+	`, userID, emailNorm, today)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "winners update error"})
+		return
+	}
+	if cmdTag.RowsAffected() == 0 {
+		c.JSON(409, gin.H{"error": "already_claimed_or_missing"})
+		return
+	}
+
+	// 3) Отметим, что модалка «показана»
+	_, _ = tx.Exec(ctx, `
+		UPDATE public.claim_denied_oneoff
+		   SET shown_at = NOW()
+		 WHERE email_norm = $1::citext
+		   AND shown_at IS NULL
+	`, emailNorm)
+
+	// 4) Уведомление
+	payload := map[string]any{
+		"event":      "claim_bonus",
+		"user_id":    userID,
+		"amount_eur": req.Amount,
+		"reason":     req.Reason,
+		"ts":         time.Now().UTC(),
+	}
+	if b, _ := json.Marshal(payload); len(b) > 0 {
+		_, _ = tx.Exec(ctx, `SELECT pg_notify('lw_winner_events', $1)`, string(b))
+	}
+
+	var newBal float64
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(balance,0) FROM users WHERE id=$1`, userID).Scan(&newBal); err != nil {
+		c.JSON(500, gin.H{"error": "get balance error"})
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		c.JSON(500, gin.H{"error": "tx commit error"})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"new_balance": newBal,
+	})
 }
 
 

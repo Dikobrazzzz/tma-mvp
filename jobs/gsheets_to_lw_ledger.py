@@ -27,6 +27,11 @@ SRC_DEFAULT  = os.getenv("LW_SRC_FILE_DEFAULT", f"gsheet:{GSHEET_TAB}")
 LW_FROM      = os.getenv("LW_FROM")  # YYYY-MM-DD (опц.)
 LW_TO        = os.getenv("LW_TO")    # YYYY-MM-DD (опц.)
 
+# Список исключаемых стран можно переопределить через ENV:
+# EXCLUDE_COUNTRIES="Kenya,Кения,Nigeria,Нигерия"
+_EXCL_ENV = os.getenv("EXCLUDE_COUNTRIES", "Kenya,Кения")
+EXCLUDE_COUNTRIES = {c.strip().casefold() for c in _EXCL_ENV.split(",") if c.strip()}
+
 REQUIRED_COLS = ["User ID","Email","Date","Country","Ggr","Inout","Turnover","Deposit Amount"]
 
 def _err(msg): raise SystemExit(f"[error] {msg}")
@@ -53,7 +58,7 @@ def _parse_num(x):
 
     s = s.replace("\u2212", "-")                    # U+2212 → '-'
     s = re.sub(r"[\s\u00A0\u202F]", "", s)          # удалить все пробелы/NBSP
-    s = re.sub(r"[^0-9\-\.,]", "", s)               # оставить цифры, -, . , 
+    s = re.sub(r"[^0-9\-\.,]", "", s)               # оставить цифры, -, . ,
 
     if s.count(",") == 1 and s.count(".") == 0:
         # 12,34 -> 12.34
@@ -72,7 +77,6 @@ def _parse_num(x):
         return float(s)
     except:
         return None
-
 
 def _parse_dt_utc(x):
     if x is None or str(x).strip()=="":
@@ -108,7 +112,9 @@ def read_sheet() -> pd.DataFrame:
         valueRenderOption="UNFORMATTED_VALUE"
     ).execute()
     values = resp.get("values", [])
-    if not values: return pd.DataFrame()
+    if not values:
+        print("[read] sheet empty")
+        return pd.DataFrame()
 
     header, rows = values[0], values[1:]
     df = pd.DataFrame(rows, columns=header).copy()
@@ -118,6 +124,7 @@ def read_sheet() -> pd.DataFrame:
     if miss:
         _err(f"В листе нет обязательных колонок: {miss}. Есть: {list(df.columns)}")
 
+    # Маппинг и нормализация
     df["user_id"]        = df["User ID"].map(lambda x: int(float(x)) if str(x).strip()!="" else 0)
     df["email_norm"]     = df["Email"].map(_norm_email)
     df["date_ts"]        = df["Date"].map(_parse_dt_utc)
@@ -128,19 +135,12 @@ def read_sheet() -> pd.DataFrame:
     df["deposit_amount"] = df["Deposit Amount"].map(_parse_num)
     df["src_file"]       = SRC_DEFAULT
 
-    # Фильтры по обязательным полям
+    # Обязательные поля
     df = df[(df["user_id"].notna()) & (df["user_id"]!=0) &
             (df["email_norm"].notna()) & (df["date_ts"].notna())]
+    print(f"[map] rows_after_required={len(df)}")
 
-    # ---- Fallback: если указано LW_FALLBACK_METRIC=inout, подставляем inout в ggr там, где ggr пуст/0
-    if LW_FALLBACK_METRIC == "inout":
-        ggr_before = df["ggr"].copy()
-        mask = (df["ggr"].isna()) | (df["ggr"] == 0)
-        df.loc[mask & df["inout"].notna(), "ggr"] = df.loc[mask, "inout"]
-        replaced = int(((ggr_before != df["ggr"]) & mask).sum())
-        print(f"[fallback] ggr<-inout: replaced={replaced}")
-
-    # Диапазон: по умолчанию — вчера UTC
+    # --- 1) Диапазон дат (сначала!) ---
     if LW_FROM or LW_TO:
         if LW_FROM:
             start = datetime.fromisoformat(LW_FROM).replace(tzinfo=timezone.utc)
@@ -152,7 +152,27 @@ def read_sheet() -> pd.DataFrame:
         today_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         start, end = today_utc - timedelta(days=1), today_utc
         df = df[(df["date_ts"] >= start) & (df["date_ts"] < end)]
+    print(f"[range] rows_after_date={len(df)} "
+          f"(from={LW_FROM or start.date()} to<{LW_TO or end.date()})")
 
+    # --- 2) Фильтр стран (если задан EXCLUDE_COUNTRIES) ---
+    before_rows = len(df)
+    if EXCLUDE_COUNTRIES:
+        mask_keep = ~df["country"].fillna("").map(lambda s: s.casefold()).isin(EXCLUDE_COUNTRIES)
+        df = df.loc[mask_keep].copy()
+        dropped = before_rows - len(df)
+        if dropped > 0:
+            print(f"[country] dropped_by_country={dropped} (excluded={sorted(EXCLUDE_COUNTRIES)})")
+    print(f"[country] rows_after_country={len(df)}")
+
+    # --- 3) Fallback ggr<-inout (только внутри выбранного диапазона) ---
+    if LW_FALLBACK_METRIC == "inout":
+        mask = (df["ggr"].isna()) | (df["ggr"] == 0)
+        replaced = int((mask & df["inout"].notna()).sum())
+        df.loc[mask & df["inout"].notna(), "ggr"] = df.loc[mask, "inout"]
+        print(f"[fallback] ggr<-inout replaced_in_range={replaced}")
+
+    print(f"[read] rows={len(df)}")
     return df[["user_id","email_norm","date_ts","country","ggr","inout","turnover","deposit_amount","src_file"]].copy()
 
 def _has_unique_uid_date(conn) -> bool:

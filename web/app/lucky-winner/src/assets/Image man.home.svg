@@ -81,7 +81,5 @@
 <stop stop-color="#FF7474"/>
 <stop offset="1" stop-color="#7E0000" stop-opacity="0"/>
 </linearGradient>
-<image id="image0_120_188" width="946" height="1391" preserveAspectRatio="none" xlink:href="/hero/image0.png"/>
-<image id="image1_120_188" width="946" height="1726" preserveAspectRatio="none" xlink:href="/hero/image1.png"/>
 </defs>
 </svg>

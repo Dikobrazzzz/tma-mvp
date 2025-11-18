@@ -1,40 +1,27 @@
-# lw_job_final.py
 import os
 import argparse
-import random
 from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
-try:
-    pd.set_option("future.no_silent_downcasting", True)
-except Exception:
-    pass
-
 import psycopg
 import sqlalchemy as sa
+
+pd.set_option("future.no_silent_downcasting", True)
 
 # ----- Параметры механики -----
 PRIZE = float(os.getenv("LW_PRIZE", "500"))
 TAIL_Q = float(os.getenv("LW_TAIL_Q", "0.025"))
+G1_STD_SHIFT = float(os.getenv("LW_G1_STD_SHIFT", "0.5"))
+LOW_SIGMA = float(os.getenv("LW_LOW_SIGMA", "2.0"))
 VIP_DEFAULT = int(os.getenv("LW_VIP_DEFAULT", "3"))
 FORCE_VIP_LEVEL = os.getenv("LW_FORCE_VIP_LEVEL")  # None | "3" | "2" ...
 WINNERS_COUNT = {
     "Group 1": int(os.getenv("LW_WIN_G1", "9")),
     "Group 2": int(os.getenv("LW_WIN_G2", "10")),
-    "Group 3": int(os.getenv("LW_WIN_G3", "4")),
-    "Group 4": int(os.getenv("LW_WIN_G4", "2")),
+    "Group 3": float(os.getenv("LW_W_G3", "2.0")),
+    "Group 4": float(os.getenv("LW_W_G4", "2.0")),
 }
-GROUP_WEIGHTS = {
-    "Group 1": float(os.getenv("LW_GW_G1", "1.0")),
-    "Group 2": float(os.getenv("LW_GW_G2", "1.0")),
-    "Group 3": float(os.getenv("LW_GW_G3", "1.0")),
-    "Group 4": float(os.getenv("LW_GW_G4", "1.0")),
-    "Any": 1.0,
-}
-INCLUDE_ZERO_GGR = os.getenv("LW_INCLUDE_ZERO_GGR", "0") == "1"
-TOTAL_WINNERS_PER_DAY = 25
-TRIGGER_MODAL_FOR_PAST = os.getenv("LW_TRIGGER_MODAL_FOR_PAST", "0") == "1"
 METRIC_WEIGHTS = {
     "sqrt": float(os.getenv("LW_M_SQRT", "0.5")),
     "ln": float(os.getenv("LW_M_LN", "0.3")),
@@ -48,16 +35,14 @@ MAX_CHANCE = float(os.getenv("LW_MAX_CHANCE", "0.1"))
 GGR_MIN_ABS = float(os.getenv("LW_GGR_MIN_ABS", "1.0"))
 REQUIRE_TURNOVER_POS = os.getenv("LW_REQUIRE_TURNOVER_POS", "0") == "1"
 
-# VIP-гейтинг для Group 4 (не используется в «оригинале», см. классификацию)
+# VIP-гейтинг для Group 4
 REQ_VIP_G4 = os.getenv("LW_REQUIRE_VIP_G4", "0") == "1"
 VIP_G4_MIN = int(os.getenv("LW_VIP_G4_MIN", "2"))
-
-# Добор из отрицательных групп
-TOPUP_INCLUDE_NEG = os.getenv("LW_TOPUP_INCLUDE_NEG", "0") == "1"
 
 # ----- Подключение к БД -----
 def dsn() -> str:
     return os.getenv("LW_PG_DSN", "postgresql://tma:tma@127.0.0.1:5432/tma")
+
 
 def _sa_dsn() -> str:
     d = dsn()
@@ -65,12 +50,14 @@ def _sa_dsn() -> str:
         return "postgresql+psycopg://" + d[len("postgresql://") :]
     return d
 
+
 ENGINE = sa.create_engine(_sa_dsn())
 
 # ----- Утиль -----
 def utc_day_bounds(day: date):
     start = datetime.combine(day, datetime.min.time()).replace(tzinfo=timezone.utc)
     return start, start + timedelta(days=1)
+
 
 def read_ledger(d_from: datetime, d_to: datetime) -> pd.DataFrame:
     sql = sa.text(
@@ -138,6 +125,36 @@ def read_ledger(d_from: datetime, d_to: datetime) -> pd.DataFrame:
         ]
     ]
 
+
+def compute_daily_mu_sigma(df_day: pd.DataFrame):
+    ggr = df_day["GGR"].astype(float)
+    q_low = np.quantile(ggr, TAIL_Q)
+    q_high = np.quantile(ggr, 1 - TAIL_Q)
+    mask_mid = (ggr >= q_low) & (ggr <= q_high)
+    mid = df_day.loc[mask_mid].copy()
+    if mid.empty:
+        mid = df_day.copy()
+    mu = float(mid["GGR"].mean())
+    sigma = float(mid["GGR"].std(ddof=0) or 1e-6)
+    return mid.reset_index(drop=True), mu, sigma
+
+
+def classify_group(row, mu: float, sigma: float) -> str:
+    g = float(row["GGR"])
+    vip = int(row["vip_level"])
+    if g > mu + G1_STD_SHIFT * sigma:
+        return "Group 1"
+    if (g >= 0.0) and (g <= mu):
+        return "Group 2"
+    if (g < 0.0) and (g >= mu - LOW_SIGMA * sigma):
+        return "Group 3"
+    if g < mu - LOW_SIGMA * sigma:
+        # VIP-гейтинг для Group 4 — опционально
+        if (not REQ_VIP_G4) or (vip >= VIP_G4_MIN):
+            return "Group 4"
+    return "Other"
+
+
 def fetch_consecutive_wins_before(d_from: datetime) -> dict:
     sql = sa.text(
         """
@@ -169,9 +186,13 @@ def fetch_consecutive_wins_before(d_from: datetime) -> dict:
         streaks[email] = s
     return streaks
 
+
 def weighted_choice(emails, k, prev_winners: set, consec: dict, group_name: str):
+    """Мягкий анти-стрик + небольшой шум. Без повторов в рамках дня."""
     if not emails:
         return []
+
+    # k может приехать как float/np.number — приводим строго к int и ограничиваем сверху.
     try:
         k_int = int(k)
     except Exception:
@@ -179,6 +200,8 @@ def weighted_choice(emails, k, prev_winners: set, consec: dict, group_name: str)
     k_int = max(0, min(k_int, len(emails)))
     if k_int == 0:
         return []
+
+    # веса
     w = []
     for e in emails:
         s = consec.get(e, 0)
@@ -187,11 +210,19 @@ def weighted_choice(emails, k, prev_winners: set, consec: dict, group_name: str)
             base *= 1.0 / (1 + 0.7 * s)  # чем длиннее серия, тем меньше шанс
         base += np.random.uniform(MIN_CHANCE, MAX_CHANCE)
         w.append(base)
+
     w = np.array(w, dtype=float)
     w_sum = w.sum()
-    p = None if (not np.isfinite(w_sum) or w_sum <= 0) else (w / w_sum)
+
+    # защита от нулевой/NaN-суммы
+    if not np.isfinite(w_sum) or w_sum <= 0:
+        p = None  # равномерно
+    else:
+        p = w / w_sum
+
     idx = np.random.choice(len(emails), size=int(k_int), replace=False, p=p)
     return [emails[i] for i in idx]
+
 
 def pick_group_winners(
     df_group: pd.DataFrame, need: int, prev_winners: set, consec: dict, group_name: str
@@ -200,26 +231,31 @@ def pick_group_winners(
     chosen = weighted_choice(emails, need, prev_winners, consec, group_name)
     wins = df_group[df_group["email_norm"].isin(chosen)].copy()
     for e in chosen:
-        consec[e] = min(MAX_CONSEC_WINS, consec.get(e, 0) + 1 if e in prev_winners else 1)
+        consec[e] = min(
+            MAX_CONSEC_WINS, consec.get(e, 0) + 1 if e in prev_winners else 1
+        )
     return wins
 
+
 def round_to_cents_sum(amounts, total=500.0):
+    """Округление сумм так, чтобы их итог был ровно 'total' (устойчиво к отрицат. остатку)."""
     amounts = np.array(amounts, dtype=float)
     if len(amounts) == 0:
         return amounts
-    cents = np.rint(amounts * 100.0, dtype=np.float64)
+    cents = np.rint(amounts * 100.0, dtype=np.float64)  # стартовая «почти целевая»
     floors = np.floor(cents)
     remainder = int(round(total * 100 - floors.sum()))
     if remainder > 0:
         frac = cents - floors
-        order = np.argsort(-frac)
+        order = np.argsort(-frac)  # отдаём копейки у кого больше дробная часть
         floors[order[:remainder]] += 1
     elif remainder < 0:
         frac = cents - floors
-        order = np.argsort(frac)
+        order = np.argsort(frac)  # забираем копейки у кого дробная часть минимальна
         floors[order[: (-remainder)]] -= 1
     floors = np.clip(floors, 0, None)
     return floors / 100.0
+
 
 def compute_metrics_and_rewards(df_day: pd.DataFrame) -> pd.DataFrame:
     g = df_day["GGR"].astype(float).to_numpy()
@@ -237,85 +273,33 @@ def compute_metrics_and_rewards(df_day: pd.DataFrame) -> pd.DataFrame:
     out["base_reward"] = (
         out["sqrt_share"] * METRIC_WEIGHTS["sqrt"]
         + out["ln_share"] * METRIC_WEIGHTS["ln"]
-        + out["Z_share"]  * METRIC_WEIGHTS["Z"]
+        + out["Z_share"] * METRIC_WEIGHTS["Z"]
     )
     out["adj_reward"] = out["base_reward"]
-
     for gname, w in GROUP_WEIGHTS.items():
         out.loc[out["group"] == gname, "adj_reward"] *= w
 
     total_adj = float(out["adj_reward"].sum())
+    raw = (
+        PRIZE * out["adj_reward"] / total_adj
+        if total_adj > 0
+        else out["base_reward"].to_numpy()
+    )
 
-    if total_adj > 0:
-        raw = PRIZE * out["adj_reward"] / total_adj
-    else:
-        # все метрики нулевые (например, все GGR=0) — делим приз поровну
-        n = len(out)
-        raw = np.full(n, PRIZE / n if n > 0 else 0.0, dtype=float)
-
+    # Ровно PRIZE с учётом копеек
     out["final_reward"] = round_to_cents_sum(raw, PRIZE)
     out["final_reward"] = np.clip(out["final_reward"], 0.0, None)
     return out
 
-def _key(row):
-    """
-    Ключ уникальности участника в выборке.
-    Используем (email_norm, user_id) если оба есть, иначе только email_norm.
-    Ожидается, что row — dict/obj с полями 'email_norm' и 'user_id'.
-    """
-    if isinstance(row, dict):
-        e = (row.get("email_norm") or "")
-        u = row.get("AccountID")
-    else:
-        e = getattr(row, "email_norm", "") or ""
-        u = getattr(row, "AccountID", None)
-    try:
-        u = int(u) if (u is not None and str(u).isdigit()) else None
-    except Exception:
-        u = None
-    return (e, u)
-
-def top_up_after_quota(picked_rows, group1_rows, group2_rows, group3_rows, group4_rows, target_count, include_neg=False):
-    """
-    Добрать победителей до target_count.
-    - picked_rows: уже выбранные победители (list[dict|obj])
-    - groupX_rows: кандидаты по группам (list[dict|obj])
-    - target_count: желаемое итоговое количество победителей (int)
-    - include_neg: если True — разрешить добор из G3/G4
-    Возвращает: (new_picked_rows, picked_more_list, pool_size)
-    """
-    already = {_key(r) for r in picked_rows}
-
-    pool = []
-    for r in (group1_rows or []):
-        if _key(r) not in already:
-            pool.append(r)
-    for r in (group2_rows or []):
-        if _key(r) not in already:
-            pool.append(r)
-
-    if include_neg:
-        for r in (group3_rows or []):
-            if _key(r) not in already:
-                pool.append(r)
-        for r in (group4_rows or []):
-            if _key(r) not in already:
-                pool.append(r)
-
-    random.shuffle(pool)
-
-    need = max(0, int(target_count) - len(picked_rows))
-    take = min(need, len(pool))
-    picked_more = pool[:take]
-    new_picked = picked_rows + picked_more
-    return new_picked, picked_more, len(pool)
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--from", dest="date_from", help="YYYY-MM-DD (UTC inclusive)")
     ap.add_argument("--to", dest="date_to", help="YYYY-MM-DD (UTC exclusive)")
     ap.add_argument("--draw-id", dest="draw_id", help="идентификатор розыгрыша")
-    ap.add_argument("--dry", action="store_true", help="не писать в БД, только превью")
+    ap.add_argument(
+        "--dry", action="store_true", help="не писать в БД, только превью"
+    )
     args = ap.parse_args()
 
     today = datetime.now(timezone.utc).date()
@@ -325,7 +309,7 @@ def main():
     else:
         d_from, d_to = utc_day_bounds(today - timedelta(days=1))
 
-    draw_id = args.draw_id or d_from.date().isoformat()
+    draw_id = args.draw_id or (d_to.date().isoformat())
 
     df = read_ledger(d_from, d_to)
     if df.empty:
@@ -338,71 +322,13 @@ def main():
     all_day_winners = []
     for day in sorted(df["Date"].unique()):
         df_day = df[df["Date"] == day].copy()
+        mid, mu, sigma = compute_daily_mu_sigma(df_day)
+        mid["group"] = mid.apply(lambda r: classify_group(r, mu, sigma), axis=1)
 
-        # 0) Жёстко исключим GGR == 0
-        #df_day = df_day[df_day["GGR"] != 0]
-        if not INCLUDE_ZERO_GGR:
-            df_day = df_day[df_day["GGR"] != 0]
-        if df_day.empty:
-            print(f"[{day}] skipped: all users have GGR = 0")
-            continue
-
-        if df_day.empty:
-            print(f"[{day}] skipped: all users have GGR = 0")
-            continue
-
-        # 0.1) Квантильные хвосты и порог «сверхверхних»
-        q_low = float(np.quantile(df_day["GGR"], TAIL_Q))
-        q_high = float(np.quantile(df_day["GGR"], 1 - TAIL_Q))
-        df_day["lower"] = (df_day["GGR"] < q_low).astype(int)
-        df_day["upper"] = (df_day["GGR"] > q_high).astype(int)
-        daily_outliers = df_day[(df_day["lower"] == 0) & (df_day["upper"] == 0)].copy()
-        if daily_outliers.empty:
-            daily_outliers = df_day.copy()
-
-        outliers_mean = float(daily_outliers["GGR"].mean())
-        outliers_std = float(daily_outliers["GGR"].std(ddof=0) or 0.0)
-        OUTLIER_STD_MULT = float(os.getenv("LW_OUTLIER_STD_MULT", "2.0"))
-        outliers_border = outliers_mean + outliers_std * OUTLIER_STD_MULT
-
-        # 0.2) Отрезаем только сверхверхние
-        df_day = df_day[df_day["GGR"] < outliers_border].copy()
-        if df_day.empty:
-            print(f"[{day}] skipped after border cut: GGR < {outliers_border:.2f} → 0 rows")
-            continue
-
-        # 1) «Оригинальная» классификация (mean + lower; VIP как в ноутбуке: vip != 1)
-        df_day["mean"] = outliers_mean
-
-        def classify_original(row):
-            g = float(row["GGR"])
-            lower = int(row.get("lower", 0))
-            vip = int(row["vip_level"])
-            if g > row["mean"]:
-                return "Group 1"
-            elif g >= 0:
-                return "Group 2"
-            elif (g < 0) and (lower != 1):
-                return "Group 3"
-            elif (g < 0) and (lower == 1) and (vip != 1):
-                # Если хочется через ENV-гейтинг:
-                # if (g < 0) and (lower == 1) and ((not REQ_VIP_G4) or (vip >= VIP_G4_MIN)):
-                return "Group 4"
-            else:
-                return "Other"
-
-        df_day["group"] = df_day.apply(classify_original, axis=1)
-
-        # Кандидаты по группам (уникальные email по группе)
-        g1_cand = df_day[df_day["group"] == "Group 1"].drop_duplicates("email_norm").to_dict("records")
-        g2_cand = df_day[df_day["group"] == "Group 2"].drop_duplicates("email_norm").to_dict("records")
-        g3_cand = df_day[df_day["group"] == "Group 3"].drop_duplicates("email_norm").to_dict("records")
-        g4_cand = df_day[df_day["group"] == "Group 4"].drop_duplicates("email_norm").to_dict("records")
-
-        # 2) Выбор по квотам
+        # 1) Выбор по квотам
         day_wins_parts = []
         picked_emails = set()
-        for (d_cur, gname), grp in df_day.groupby(["Date", "group"]):
+        for (d, gname), grp in mid.groupby(["Date", "group"]):
             if gname not in WINNERS_COUNT:
                 continue
             need = WINNERS_COUNT.get(gname, 0)
@@ -414,53 +340,46 @@ def main():
             picked = sel["email_norm"].nunique()
             picked_emails |= set(sel["email_norm"].unique())
             print(f"[{day}] {gname}: candidates={cand}, picked={picked} (quota={need})")
-            if not sel.empty:
-                day_wins_parts.append(sel)
+            day_wins_parts.append(sel)
 
-        # Базовый список выбранных (как объекты/словарики для добора)
-        picked_rows = []
-        if day_wins_parts:
-            picked_rows = (
-                pd.concat(day_wins_parts, ignore_index=True)
-                .drop_duplicates(subset=["email_norm"])
-                .to_dict("records")
-            )
-
-        # 3) Добор до TOTAL_WINNERS_PER_DAY по флагу LW_TOPUP_INCLUDE_NEG
-        already = len(picked_rows)
+        # 2) Добор до TOTAL_WINNERS_PER_DAY из общего пула (без 'Other')
+        already = len(picked_emails)
         need_more = max(0, TOTAL_WINNERS_PER_DAY - already)
         if need_more > 0:
-            new_picked, picked_more, pool_size = top_up_after_quota(
-                picked_rows,
-                g1_cand,
-                g2_cand,
-                g3_cand,
-                g4_cand,
-                TOTAL_WINNERS_PER_DAY,
-                include_neg=TOPUP_INCLUDE_NEG,
-            )
-            # выделить только добавленных
-            prev_keys = {_key(r) for r in picked_rows}
-            added_rows = [r for r in new_picked if _key(r) not in prev_keys]
-            if added_rows:
-                extra_df = pd.DataFrame(added_rows)
-                day_wins_parts.append(extra_df)
-                picked_emails |= set(extra_df["email_norm"].unique())
-            print(f"[{day}] top-up: need_more={need_more}, pool={pool_size}, added={len(added_rows)}")
-        else:
-            print(f"[{day}] top-up: not needed (already={already})")
+            pool = mid[mid["group"].isin(WINNERS_COUNT.keys())].copy()
+            pool = pool[~pool["email_norm"].isin(picked_emails)]
+            pool = pool.drop_duplicates(subset=["email_norm"])
+            if not pool.empty:
+                extra = pick_group_winners(
+                    pool.assign(group="Any"), need_more, prev_winners, consec, "Any"
+                )
+                if not extra.empty:
+                    picked_emails |= set(extra["email_norm"].unique())
+                    day_wins_parts.append(extra)
+                print(
+                    f"[{day}] top-up: need_more={need_more}, "
+                    f"added={extra['email_norm'].nunique() if not extra.empty else 0}"
+                )
+            else:
+                print(
+                    f"[{day}] top-up: pool is empty, cannot reach target={TOTAL_WINNERS_PER_DAY}"
+                )
 
         if not day_wins_parts:
             continue
 
         day_wins = pd.concat(day_wins_parts, ignore_index=True)
 
-        # 4) Награды на день (ровно PRIZE)
+        # 3) Награды с точной суммой PRIZE на день
         day_out = compute_metrics_and_rewards(day_wins)
         all_day_winners.append(day_out)
         prev_winners.update(day_out["email_norm"].unique().tolist())
 
-        print(f"[{day}] winners={day_out['email_norm'].nunique()} sum={day_out['final_reward'].sum():.2f}")
+        # Отладочный вывод по дню
+        print(
+            f"[{day}] winners={day_out['email_norm'].nunique()} "
+            f"sum={day_out['final_reward'].sum():.2f}"
+        )
 
     if not all_day_winners:
         print("[info] победителей не выбрано")
@@ -507,7 +426,10 @@ def main():
                 (email,),
             )
         con.commit()
-    print(f"[ok] triggered Claim Bonus modal for {len(unique_emails)} unique winners (claim_denied_oneoff updated)")
+    print(
+        f"[ok] triggered Claim Bonus modal for {len(unique_emails)} unique winners "
+        f"(claim_denied_oneoff updated)"
+    )
 
     # Чистим устаревшие строки за draw_id, которых нет в текущем результате
     to_keep = result["email_norm"].dropna().unique().tolist()
@@ -524,15 +446,40 @@ def main():
         con.commit()
     print(f"[ok] pruned {deleted} stale rows for draw_id={draw_id}")
 
+    # Экспорт в Google Sheets (не обязателен)
+    GSHEET_ID = os.getenv("LW_GSHEET_ID")
+    GSHEET_TAB = os.getenv("LW_GSHEET_TAB", "winners")
+    GSHEET_CREDS = os.getenv("LW_GSHEET_CREDS", "/opt/tma-mvp/creds/sa_gsheets.json")
+    if GSHEET_ID and os.path.isfile(GSHEET_CREDS):
+        try:
+            from gsheets_export import upload_dataframe, winners_df_for_day
+
+            day_for_export = d_from.date().isoformat()  # строго день FROM
+            export_df = winners_df_for_day(day_for_export)
+            upload_dataframe(GSHEET_ID, GSHEET_TAB, export_df, GSHEET_CREDS)
+            print(
+                f"[gsheets] uploaded {len(export_df)} rows to '{GSHEET_TAB}' "
+                f"from DB day='{day_for_export}'"
+            )
+        except Exception as e:
+            print(f"[gsheets][warn] export failed: {e}")
+    else:
+        print("[gsheets] skipped (LW_GSHEET_ID or creds not set)")
+
     # Превью и контроль суммы
     print("[preview] первые 20 строк:")
-    print(result[["Date", "email_norm", "AccountID", "group", "GGR", "final_reward"]].head(20))
+    print(
+        result[
+            ["Date", "email_norm", "AccountID", "group", "GGR", "final_reward"]
+        ].head(20)
+    )
     by_day = result.groupby("Date")["final_reward"].sum().reset_index()
     print("[check] сумма по дням (должно быть ровно PRIZE на день):")
     print(by_day)
 
     if args.dry:
         print("[dry-run] запись отключена")
+
 
 if __name__ == "__main__":
     main()

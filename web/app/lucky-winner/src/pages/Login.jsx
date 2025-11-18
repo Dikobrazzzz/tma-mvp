@@ -79,18 +79,27 @@ export default function Login() {
     if (left > 0) return;
 
     try {
-      const chk = await api("/api/auth/exists", { method: "POST", body: { email: emailNorm }, token });
+      const chk = await api("/api/auth/exists", {
+        method: "POST",
+        body: { email: emailNorm },
+        token,
+      });
       if (!chk?.exists) {
         setEmail(emailNorm);
         setShowNotFound(true);
         setErrors((p) => ({ ...p, email: "" }));
         return;
       }
-      await api("/api/verify/send", { method: "POST", body: { email: emailNorm }, token });
+      await api("/api/verify/send", {
+        method: "POST",
+        body: { email: emailNorm },
+        token,
+      });
       setLeft(30);
       const now = Date.now();
       setSentAt(now);
-      if (!firstSent) setFirstSent(true); else setResendCount((n) => n + 1);
+      if (!firstSent) setFirstSent(true);
+      else setResendCount((n) => n + 1);
     } catch (e) {
       setMsg(e?.error || t("sendError"));
     }
@@ -102,9 +111,17 @@ export default function Login() {
     let has = false;
     const emailNorm = normalizeEmail(email);
 
-    if (!emailNorm) { nextErrors.email = t("thisFieldRequired"); has = true; }
-    else if (!isValidEmail(emailNorm)) { nextErrors.email = t("invalidEmail", "Invalid email"); has = true; }
-    if (!code.trim()) { nextErrors.code = t("thisFieldRequired"); has = true; }
+    if (!emailNorm) {
+      nextErrors.email = t("thisFieldRequired");
+      has = true;
+    } else if (!isValidEmail(emailNorm)) {
+      nextErrors.email = t("invalidEmail", "Invalid email");
+      has = true;
+    }
+    if (!code.trim()) {
+      nextErrors.code = t("thisFieldRequired");
+      has = true;
+    }
 
     setErrors(nextErrors);
     if (has) return;
@@ -117,7 +134,11 @@ export default function Login() {
 
     try {
       setLoading(true);
-      const res = await api("/api/verify/check", { method: "POST", body: { email: emailNorm, code }, token });
+      const res = await api("/api/verify/check", {
+        method: "POST",
+        body: { email: emailNorm, code },
+        token,
+      });
       if (res.token) {
         await setToken(res.token);
         await setAutoLoginDisabled(false);
@@ -126,7 +147,10 @@ export default function Login() {
           const me = await api("/api/me", { token: res.token });
           if (typeof me?.balance === "number") setBalance(me.balance);
           if (me?.should_show_claim_denied) {
-            api("/api/claim-denied-ack", { method: "POST", token: res.token }).catch(() => {});
+            api("/api/claim-denied-ack", {
+              method: "POST",
+              token: res.token,
+            }).catch(() => {});
             setShowClaimBonus(true);
             return;
           }
@@ -139,7 +163,11 @@ export default function Login() {
       }
       setMsg(t("verificationFailed"));
     } catch (e) {
-      if (e.status === 400) setErrors((p) => ({ ...p, code: e?.error || t("invalidCode") }));
+      if (e.status === 400)
+        setErrors((p) => ({
+          ...p,
+          code: e?.error || t("invalidCode"),
+        }));
       else setMsg(e?.error || t("loginError"));
     } finally {
       setLoading(false);
@@ -147,106 +175,183 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[#151515] text-white flex flex-col relative">
-      <img src={wall} alt="" className="fixed inset-x-0 top-[-14%] w-full scale-30 object-cover z-0" />
-      <Header />
+    <div className="min-h-screen bg-[#151515] text-white flex flex-col">
+      {/* HERO с Wall.svg, как в Home/Winners */}
+      <div className="relative flex-shrink-0 overflow-hidden">
+        <img
+          src={wall}
+          alt="Lucky Winner login background"
+          loading="eager"
+          fetchpriority="high"
+          decoding="async"
+          className="w-full h-[66vh] min-h-[500px] md:h-[70vh] object-cover rounded-b-[48px] select-none pointer-events-none"
+          style={{
+            objectPosition: "50% -70%",
+            transform: "translateY(-160px)",
+          }}
+        />
 
-      <div className="relative z-10 px-4 pt-4 pb-2">
-        <h1 className="text-3xl font-bold text-white flex items-center gap-2">
-          <img src={icProfile} alt="" className="h-9 w-9" />
-          {t("login")}
-        </h1>
+        <div className="absolute inset-x-0 top-0 z-10">
+          <Header />
+        </div>
       </div>
 
-      <form
-        className="relative z-10 flex flex-col flex-1 overflow-y-auto"
-        noValidate
-        onSubmit={(e) => { e.preventDefault(); if (!loading) login(); }}
-      >
-        {/* TOP SPACER: опускаем блок полей ниже */}
-        <div className="h-[14vh]" />
-
-        {/* Email */}
-        <div className="transition-none flex justify-center">
-          <div className="w-[90%]">
-            <div className="relative rounded-3xl px-3 py-2" style={styleFor(!!errors.email)}>
-              <input
-                className="w-full bg-transparent rounded-3xl text-white outline-none text-[12px] md:text-[14px] text-left py-2"
-                placeholder={t("email")}
-                value={email}
-                onChange={(e) => { setEmail(e.target.value); if (errors.email) setErrors((p) => ({ ...p, email: "" })); }}
-                inputMode="email"
-                autoComplete="email"
-                type="email"
-                enterKeyHint="next"
-              />
-            </div>
-            <div className="h-4 relative">
-              {errors.email && <span className="absolute left-3 top-[2px] text-[#C80302] text-[10px]">{errors.email}</span>}
-            </div>
-          </div>
+      {/* Весь контент (заголовок + форма) сильно поднят вверх за счёт отрицательного margin */}
+      <div className="-mt-[68vh] sm:-mt-[210px] md:-mt-[250px] lg:-mt-[290px] relative z-10 flex-1 flex flex-col">
+        {/* Заголовок LOGIN */}
+        <div className="px-4 pt-4 pb-2">
+          <h1 className="text-3xl font-bold text-white flex items-center gap-2">
+            <img src={icProfile} alt="" className="h-9 w-9" />
+            {t("login")}
+          </h1>
         </div>
 
-        {/* Send code */}
-        {(() => {
-          const disabled = left > 0 || (firstSent && resendCount >= MAX_RESENDS);
-          return (
-            <div className="w-[90%] mx-auto -mt-1 text-center">
-              <span
-                role="button" tabIndex={0} aria-disabled={disabled}
-                onClick={disabled ? undefined : sendCode}
-                onKeyDown={(e) => e.key === "Enter" && !disabled && sendCode()}
-                className={`font-normal leading-tight ${disabled ? "text-[#FFFE45]/50 cursor-not-allowed" : "text-[#FFFE45] cursor-pointer hover:opacity-90 active:opacity-80"} text-[14px] md:text-[16px]`}
-                title={disabled ? (firstSent && resendCount >= MAX_RESENDS ? t("resendLimitReached") : t("pleaseWait")) : t("sendCode")}
+        {/* Форма */}
+        <form
+          className="flex flex-col flex-1 overflow-y-auto px-4 pb-6 mt-[14vh]"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!loading) login();
+          }}
+        >
+          {/* Email */}
+          <div className="transition-none flex justify-center mt-2">
+            <div className="w-[90%]">
+              <div
+                className="relative rounded-3xl px-3 py-2"
+                style={styleFor(!!errors.email)}
               >
-                {t("sendCode")}
+                <input
+                  className="w-full bg-transparent rounded-3xl text-white outline-none text-[12px] md:text-[14px] text-left py-2"
+                  placeholder={t("email")}
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (errors.email)
+                      setErrors((p) => ({ ...p, email: "" }));
+                  }}
+                  inputMode="email"
+                  autoComplete="email"
+                  type="email"
+                  enterKeyHint="next"
+                />
+              </div>
+              <div className="h-4 relative">
+                {errors.email && (
+                  <span className="absolute left-3 top-[2px] text-[#C80302] text-[10px]">
+                    {errors.email}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Send code */}
+          {(() => {
+            const disabled =
+              left > 0 || (firstSent && resendCount >= MAX_RESENDS);
+            return (
+              <div className="w-[90%] mx-auto text-center">
+                <span
+                  role="button"
+                  tabIndex={0}
+                  aria-disabled={disabled}
+                  onClick={disabled ? undefined : sendCode}
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && !disabled && sendCode()
+                  }
+                  className={`font-normal leading-tight ${
+                    disabled
+                      ? "text-[#FFFE45]/50 cursor-not-allowed"
+                      : "text-[#FFFE45] cursor-pointer hover:opacity-90 active:opacity-80"
+                  } text-[14px] md:text-[16px]`}
+                  title={
+                    disabled
+                      ? firstSent && resendCount >= MAX_RESENDS
+                        ? t("resendLimitReached")
+                        : t("pleaseWait")
+                      : t("sendCode")
+                  }
+                >
+                  {t("sendCode")}
+                </span>
+              </div>
+            );
+          })()}
+
+          {/* Enter code */}
+          <div className="transition-none flex justify-center mt-6">
+            <div className="w-[90%]">
+              <div
+                className="relative rounded-3xl px-3 py-2"
+                style={styleFor(!!errors.code)}
+              >
+                <input
+                  className="w-full bg-transparent rounded-3xl text-white outline-none text-[12px] md:text-[14px] text-left py-2"
+                  placeholder={t("enterCode")}
+                  value={code}
+                  onChange={(e) => {
+                    setCode(e.target.value);
+                    if (errors.code)
+                      setErrors((p) => ({ ...p, code: "" }));
+                  }}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  enterKeyHint="go"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (!loading) login();
+                    }
+                  }}
+                />
+              </div>
+              <div className="h-4 relative">
+                {errors.code && (
+                  <span className="absolute left-3 top-[2px] text-[#C80302] text-[10px] font-semibold">
+                    {errors.code}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Таймер под inputs */}
+          <div className="w-full flex justify-center mt-3 mb-1">
+            <div
+              className={`h-4 flex items-center text-[10px] font-semibold text-center ${
+                left > 0 ? "" : "invisible"
+              }`}
+            >
+              <span className="text-[#FFFE45]">{left}</span>{" "}
+              <span className="text-gray-400">
+                {t("secondLeft")}
               </span>
             </div>
-          );
-        })()}
-
-        {/* Enter code */}
-        <div className="transition-none flex justify-center mt-[4vh]">
-          <div className="w-[90%]">
-            <div className="relative rounded-3xl px-3 py-2" style={styleFor(!!errors.code)}>
-              <input
-                className="w-full bg-transparent rounded-3xl text-white outline-none text-[12px] md:text-[14px] text-left py-2"
-                placeholder={t("enterCode")}
-                value={code}
-                onChange={(e) => { setCode(e.target.value); if (errors.code) setErrors((p) => ({ ...p, code: "" })); }}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                enterKeyHint="go"
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (!loading) login(); } }}
-              />
-            </div>
-            <div className="h-4 relative">
-              {errors.code && <span className="absolute left-3 top-[2px] text-[#C80302] text-[10px] font-semibold">{errors.code}</span>}
-            </div>
           </div>
-        </div>
 
-        {/* Spacer */}
-        <div className="h-[12vh]" />
-
-        {/* Timer */}
-        <div className="w-full flex justify-center mb-2">
-          <div className={`h-4 flex items-center text-[10px] font-semibold text-center ${left > 0 ? "" : "invisible"}`}>
-            <span className="text-[#FFFE45]">{left}</span>{" "}
-            <span className="text-gray-400">{t("secondLeft")}</span>
+          {/* Login button */}
+          <div className="transition-none flex justify-center mt-2">
+            <button
+              type="submit"
+              className="w-[90%] py-3 rounded-3xl bg-[#FFFE45] text-black font-extrabold text-lg shadow-lg text-center"
+              disabled={loading}
+            >
+              {loading ? t("loading") : t("enter")}
+            </button>
           </div>
-        </div>
 
-        {/* Login button */}
-        <div className="transition-none flex justify-center mt-[2vh]">
-          <button type="submit" className="w-[90%] py-3 rounded-3xl bg-[#FFFE45] text-black font-extrabold text-lg shadow-lg text-center" disabled={loading}>
-            {loading ? t("loading") : t("enter")}
-          </button>
-        </div>
+          {msg && (
+            <div className="text-sm text-red-400 text-center mt-4">
+              {msg}
+            </div>
+          )}
+        </form>
 
-        {msg && <div className="text-sm text-red-400 text-center mt-4">{msg}</div>}
-      </form>
+      </div>
 
+      {/* Нижняя навигация — как была */}
       <BottomNav />
 
       {/* Claim Bonus — одна кнопка */}
@@ -267,13 +372,16 @@ export default function Login() {
             navigate(location.state?.from || "/", { replace: true });
           }
         }}
-        onClose={() => { setShowClaimBonus(false); navigate(location.state?.from || "/", { replace: true }); }}
+        onClose={() => {
+          setShowClaimBonus(false);
+          navigate(location.state?.from || "/", { replace: true });
+        }}
       />
 
-      <EmailNotFoundModal 
-        open={showNotFound} 
+      <EmailNotFoundModal
+        open={showNotFound}
         email={normalizeEmail(email)}
-        onClose={() => setShowNotFound(false)} 
+        onClose={() => setShowNotFound(false)}
       />
     </div>
   );
