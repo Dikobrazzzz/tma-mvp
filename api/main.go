@@ -1,6 +1,8 @@
 package main
 
 import (
+        "bytes"
+        "net/http"
 	"context"
 	"crypto/tls"
 	"database/sql"
@@ -63,6 +65,56 @@ func completedBoundsForRange(rng string, now time.Time) (time.Time, time.Time) {
 		return todayUTC.AddDate(0, 0, -7), todayUTC
 	}
 }
+
+// --- Customer.io webhook -----------------------------------------------------
+
+// CUSTOMERIO_WEBHOOK_URL=https://api-eu.customer.io/v1/webhook/642341dc8683d16c
+const customerIoWebhookEnv = "CUSTOMERIO_WEBHOOK_URL"
+
+type CustomerIoPayload struct {
+    Email        string  `json:"email"`
+    UserID       int64   `json:"user_id"`
+    RewardAmount float64 `json:"reward_amount"`
+    DrawID       string  `json:"draw_id"`
+    ClaimedAt    string  `json:"claimed_at"` // RFC3339
+}
+
+func sendCustomerIoBonus(ctx context.Context, payload CustomerIoPayload) error {
+    url := os.Getenv(customerIoWebhookEnv)
+    if url == "" {
+        // В проде лучше залогировать warning, но не ронять логику
+        log.Printf("customer.io: %s is not set, skipping webhook", customerIoWebhookEnv)
+        return nil
+    }
+
+    body, err := json.Marshal(payload)
+    if err != nil {
+        return fmt.Errorf("customer.io: marshal payload: %w", err)
+    }
+
+    req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+    if err != nil {
+        return fmt.Errorf("customer.io: new request: %w", err)
+    }
+    req.Header.Set("Content-Type", "application/json")
+
+    client := &http.Client{
+        Timeout: 5 * time.Second,
+    }
+
+    resp, err := client.Do(req)
+    if err != nil {
+        return fmt.Errorf("customer.io: do request: %w", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+        return fmt.Errorf("customer.io: non-2xx status: %s", resp.Status)
+    }
+
+    return nil
+}
+
 
 // --- main --------------------------------------------------------------------
 
@@ -972,31 +1024,62 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		   AND shown_at IS NULL
 	`, emailNorm)
 
-	// 4) Уведомление
-	payload := map[string]any{
-		"event":      "claim_bonus",
-		"user_id":    userID,
-		"amount_eur": req.Amount,
-		"reason":     req.Reason,
-		"ts":         time.Now().UTC(),
-	}
-	if b, _ := json.Marshal(payload); len(b) > 0 {
-		_, _ = tx.Exec(ctx, `SELECT pg_notify('lw_winner_events', $1)`, string(b))
-	}
+    // 4) Уведомление в PostgreSQL (как было)
+    payload := map[string]any{
+        "event":      "claim_bonus",
+        "user_id":    userID,
+        "amount_eur": req.Amount,
+        "reason":     req.Reason,
+        "ts":         time.Now().UTC(),
+    }
+    if b, _ := json.Marshal(payload); len(b) > 0 {
+        _, _ = tx.Exec(ctx, `SELECT pg_notify('lw_winner_events', $1)`, string(b))
+    }
 
-	var newBal float64
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(balance,0) FROM users WHERE id=$1`, userID).Scan(&newBal); err != nil {
-		c.JSON(500, gin.H{"error": "get balance error"})
-		return
-	}
-	if err := tx.Commit(ctx); err != nil {
-		c.JSON(500, gin.H{"error": "tx commit error"})
-		return
-	}
+    var newBal float64
+    if err := tx.QueryRow(ctx, `SELECT COALESCE(balance,0) FROM users WHERE id=$1`, userID).Scan(&newBal); err != nil {
+        c.JSON(500, gin.H{"error": "get balance error"})
+        return
+    }
+    if err := tx.Commit(ctx); err != nil {
+        c.JSON(500, gin.H{"error": "tx commit error"})
+        return
+    }
 
-	c.JSON(200, gin.H{
-		"new_balance": newBal,
-	})
+    // --- Customer.io webhook: бонус начислен, шлём письмо -------------------
+    // фиксируем момент, когда операция точно завершилась
+    claimedAt := time.Now().UTC()
+
+    // именно эти поля вы договорились слать:
+    // {
+    //   "email": "user@example.com",
+    //   "user_id": 1454626993,
+    //   "reward_amount": 25.5,
+    //   "draw_id": "2025-11-19",
+    //   "claimed_at": "2025-11-20T12:34:56Z"
+    // }
+    cioPayload := CustomerIoPayload{
+        Email:        emailNorm,
+        UserID:       userID,
+        RewardAmount: req.Amount,
+        DrawID:       today,
+        ClaimedAt:    claimedAt.Format(time.RFC3339),
+    }
+
+    // Шлём асинхронно, чтобы не тормозить ответ в мини-апп
+    go func(p CustomerIoPayload) {
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+
+        if err := sendCustomerIoBonus(ctx, p); err != nil {
+            log.Printf("customer.io webhook error: user_id=%d email=%s err=%v", p.UserID, p.Email, err)
+        }
+    }(cioPayload)
+
+    // Ответ клиенту (мини-аппу)
+    c.JSON(200, gin.H{
+        "new_balance": newBal,
+    })
 }
 
 

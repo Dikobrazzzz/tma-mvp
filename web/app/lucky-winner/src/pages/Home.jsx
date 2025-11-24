@@ -15,7 +15,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#151515] text-white flex flex-col">
-      {/* HERO — Wall.svg как фон, сильно поднятый вверх */}
+      {/* HERO — Wall.svg как фон, поднятый вверх (как на Winners) */}
       <div className="relative flex-shrink-0 overflow-hidden">
         <img
           src={wall}
@@ -35,9 +35,9 @@ export default function Home() {
         </div>
       </div>
 
-      {/* КОНТЕНТ — заезжает на фон */}
-      <div className="-mt-[68vh] sm:-mt-[200px] md:-mt-[240px] lg:-mt-[280px] relative z-10">
-        {/* Title (Terms + иконка) — ОСТАВЛЯЕМ НА МЕСТЕ */}
+      {/* КОНТЕНТ — заезжает на фон по той же схеме, что и Winners (-mt-[420px]) */}
+      <div className="-mt-[420px] relative z-10">
+        {/* Title */}
         <div className="px-4 pt-4 pb-2">
           <h1 className="text-3xl font-bold text-white flex items-center gap-2">
             <img src={icTerms} alt="" className="h-9 w-9" />
@@ -45,10 +45,10 @@ export default function Home() {
           </h1>
         </div>
 
-        {/* Весь остальной контент — ОПУСКАЕМ ЧУТЬ НИЖЕ */}
-        <div className="flex-1 px-4 space-y-4 overflow-y-auto pt-4 pb-6 mt-4">
+        {/* Остальной контент */}
+        <div className="flex-1 px-4 space-y-4 overflow-y-auto pt-4 pb-6 mt-6">
           {/* Win up to €5000 */}
-          <div className="py-4 mt-6">
+          <div className="py-4">
             <div className="flex items-baseline gap-2 text-3xl font-bold tracking-tight text-left">
               <span className="text-sm">{t("winUpTo")}</span>
               <span className="text-[#fffe45] text-3xl">€5 000</span>
@@ -134,4 +134,3 @@ export default function Home() {
     </div>
   );
 }
-

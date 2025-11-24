@@ -12,11 +12,11 @@ const Tab = ({ active, children, onClick }) => (
   <button
     onClick={onClick}
     style={{
-      padding: "8px 14px",
-      fontSize: "12px",
+      padding: "6px 10px",
+      fontSize: "10px",
       borderRadius: "9999px",
       minWidth: "auto",
-      minHeight: "36px",
+      minHeight: "32px",
       whiteSpace: "nowrap",
       background: active ? "#FFFE45" : "#1A1A1A",
       color: active ? "#000000" : "#FFFFFF",
@@ -56,7 +56,6 @@ export default function Winners() {
     top10: t("top10Win"),
   };
 
-  // Маппинг вкладки -> диапазон бэкенда
   const rangeForTab = (key) => {
     switch (key) {
       case "today":
@@ -80,11 +79,21 @@ export default function Winners() {
 
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
+      // если нет токена — просто убираем лоадер и выходим
+      if (!token) {
+        setData([]);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       try {
         const range = rangeForTab(tab);
-        const res = await api(`/api/winners?range=${encodeURIComponent(range)}`);
+        const res = await api(`/api/winners?range=${encodeURIComponent(range)}`, {
+          token,
+        });
         if (cancelled) return;
 
         let rows = (Array.isArray(res) ? res : []).map((r, i) => {
@@ -115,16 +124,18 @@ export default function Winners() {
         }
 
         setData(rows);
-      } catch (e) {
+      } catch {
         setData([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [tab, token]); // token на всякий
+    // 👇 ВАЖНО: без token, чтобы эффект не триггерился каждую секунду
+  }, [tab]);
 
   if (loading) {
     return (
@@ -146,7 +157,7 @@ export default function Winners() {
           decoding="async"
           className="w-full h-[66vh] min-h-[500px] md:h-[70vh] object-cover rounded-b-[48px] select-none pointer-events-none"
           style={{
-            objectPosition: "50% -70%",   // подняли фон
+            objectPosition: "50% -70%",
             transform: "translateY(-160px)",
           }}
         />
@@ -156,9 +167,9 @@ export default function Winners() {
         </div>
       </div>
 
-      {/* КОНТЕНТ — заезжает на фон, как на Home */}
-      <div className="-mt-[68vh] sm:-mt-[200px] md:-mt-[240px] lg:-mt-[280px] relative z-10">
-        {/* Заголовок */}
+      {/* КОНТЕНТ — заезжает на фон */}
+      <div className="-mt-[420px] relative z-10">
+        {/* Заголовок — оставляем на своём месте */}
         <div className="px-4 pt-4 pb-2">
           <h1 className="text-3xl font-bold text-white flex items-center gap-2">
             <img src={icWinners} alt="" className="h-9 w-9" />
@@ -166,10 +177,10 @@ export default function Winners() {
           </h1>
         </div>
 
-        {/* Остальной контент — чуть опустили вниз */}
-        <div className="mt-20 md:mt-24 flex flex-col items-center px-4 pb-6">
+        {/* Остальной контент — ОПУЩЕН НИЖЕ */}
+        <div className="mt-10 md:mt-12 flex flex-col items-center px-4 pb-6">
           {/* Табы */}
-          <div className="flex gap-3 flex-wrap justify-center mb-4">
+          <div className="flex gap-2 flex-wrap justify-center mb-4">
             {Object.entries(tabs).map(([key, label]) => (
               <Tab key={key} active={tab === key} onClick={() => setTab(key)}>
                 {label}

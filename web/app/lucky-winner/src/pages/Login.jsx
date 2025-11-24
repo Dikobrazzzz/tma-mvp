@@ -164,10 +164,7 @@ export default function Login() {
       setMsg(t("verificationFailed"));
     } catch (e) {
       if (e.status === 400)
-        setErrors((p) => ({
-          ...p,
-          code: e?.error || t("invalidCode"),
-        }));
+        setErrors((p) => ({ ...p, code: e?.error || t("invalidCode") }));
       else setMsg(e?.error || t("loginError"));
     } finally {
       setLoading(false);
@@ -176,7 +173,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-[#151515] text-white flex flex-col">
-      {/* HERO с Wall.svg, как в Home/Winners */}
+      {/* HERO — Wall как фон */}
       <div className="relative flex-shrink-0 overflow-hidden">
         <img
           src={wall}
@@ -196,9 +193,9 @@ export default function Login() {
         </div>
       </div>
 
-      {/* Весь контент (заголовок + форма) сильно поднят вверх за счёт отрицательного margin */}
-      <div className="-mt-[68vh] sm:-mt-[210px] md:-mt-[250px] lg:-mt-[290px] relative z-10 flex-1 flex flex-col">
-        {/* Заголовок LOGIN */}
+      {/* КОНТЕНТ — общий -mt-[420px], как на Winners */}
+      <div className="-mt-[420px] relative z-10 flex-1 flex flex-col">
+        {/* Заголовок Login + иконка */}
         <div className="px-4 pt-4 pb-2">
           <h1 className="text-3xl font-bold text-white flex items-center gap-2">
             <img src={icProfile} alt="" className="h-9 w-9" />
@@ -206,9 +203,9 @@ export default function Login() {
           </h1>
         </div>
 
-        {/* Форма */}
+        {/* Остальной контент — форма и прочее чуть ниже */}
         <form
-          className="flex flex-col flex-1 overflow-y-auto px-4 pb-6 mt-[14vh]"
+          className="flex-1 flex flex-col overflow-y-auto mt-6"
           noValidate
           onSubmit={(e) => {
             e.preventDefault();
@@ -216,7 +213,7 @@ export default function Login() {
           }}
         >
           {/* Email */}
-          <div className="transition-none flex justify-center mt-2">
+          <div className="transition-none flex justify-center">
             <div className="w-[90%]">
               <div
                 className="relative rounded-3xl px-3 py-2"
@@ -252,7 +249,7 @@ export default function Login() {
             const disabled =
               left > 0 || (firstSent && resendCount >= MAX_RESENDS);
             return (
-              <div className="w-[90%] mx-auto text-center">
+              <div className="w-[90%] mx-auto -mt-1 text-center">
                 <span
                   role="button"
                   tabIndex={0}
@@ -281,7 +278,7 @@ export default function Login() {
           })()}
 
           {/* Enter code */}
-          <div className="transition-none flex justify-center mt-6">
+          <div className="transition-none flex justify-center mt-[4vh]">
             <div className="w-[90%]">
               <div
                 className="relative rounded-3xl px-3 py-2"
@@ -317,22 +314,23 @@ export default function Login() {
             </div>
           </div>
 
-          {/* Таймер под inputs */}
-          <div className="w-full flex justify-center mt-3 mb-1">
+          {/* Spacer */}
+          <div className="h-[10vh]" />
+
+          {/* Timer */}
+          <div className="w-full flex justify-center mb-2">
             <div
               className={`h-4 flex items-center text-[10px] font-semibold text-center ${
                 left > 0 ? "" : "invisible"
               }`}
             >
               <span className="text-[#FFFE45]">{left}</span>{" "}
-              <span className="text-gray-400">
-                {t("secondLeft")}
-              </span>
+              <span className="text-gray-400">{t("secondLeft")}</span>
             </div>
           </div>
 
           {/* Login button */}
-          <div className="transition-none flex justify-center mt-2">
+          <div className="transition-none flex justify-center mt-[2vh] mb-4">
             <button
               type="submit"
               className="w-[90%] py-3 rounded-3xl bg-[#FFFE45] text-black font-extrabold text-lg shadow-lg text-center"
@@ -343,15 +341,13 @@ export default function Login() {
           </div>
 
           {msg && (
-            <div className="text-sm text-red-400 text-center mt-4">
+            <div className="text-sm text-red-400 text-center mt-2 mb-4">
               {msg}
             </div>
           )}
         </form>
-
       </div>
 
-      {/* Нижняя навигация — как была */}
       <BottomNav />
 
       {/* Claim Bonus — одна кнопка */}

@@ -5,7 +5,10 @@ import { useNavigate } from "react-router-dom";
 
 import { AuthCtx } from "../auth/TelegramProvider";
 import { api } from "../api/client";
-import { clearTokenNoReload, setAutoLoginDisabled } from "../auth/tokenStore";
+import {
+  clearTokenNoReload,
+  setAutoLoginDisabled,
+} from "../auth/tokenStore";
 
 import wall from "../assets/Wall.svg";
 import icProfile from "../assets/ic_Profile.svg";
@@ -17,7 +20,6 @@ export default function Settings() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
 
-  // ВАЖНО: берём также loading из провайдера, чтобы не редиректить раньше времени
   const { token, setToken, loading: authLoading } = useContext(AuthCtx);
 
   const normalize = (lng) =>
@@ -27,19 +29,17 @@ export default function Settings() {
   const [isLanguageOpen, setIsLanguageOpen] = useState(false);
   const [selectedLang, setSelectedLang] = useState(normalize(i18n.language));
 
-  // Поздняя проверка авторизации — редиректим только когда провайдер закончил инициализацию
   useEffect(() => {
     if (!authLoading && !token) {
       navigate("/login", { replace: true });
     }
   }, [authLoading, token, navigate]);
 
-  // Грузим профиль из бэка только когда токен уже есть и инициализация закончилась
   useEffect(() => {
     let cancelled = false;
 
     const fetchMe = async () => {
-      if (authLoading || !token) return; // ждём окончания init и наличия токена
+      if (authLoading || !token) return;
       try {
         const me = await api("/api/me", { token });
         if (cancelled) return;
@@ -52,7 +52,6 @@ export default function Settings() {
 
         setUserId(extId != null ? String(extId) : "—");
       } catch {
-        // если токен невалиден — отправим на логин после завершения инициализации
         if (!authLoading) navigate("/login", { replace: true });
       }
     };
@@ -97,26 +96,22 @@ export default function Settings() {
 
   const handleLogout = async () => {
     try {
-      // 1) запретить silent-login по initData заранее
       await setAutoLoginDisabled(true);
-      // 2) попросить бэкенд убрать refresh-cookie
       await fetch("/api/auth/logout", {
         method: "POST",
         credentials: "include",
       });
     } catch {}
 
-    // 3) очистить локальный access-токен БЕЗ перезагрузки WebView
     await clearTokenNoReload();
 
-    // 4) обнулить контекст и перейти на /login
     setToken("");
     navigate("/login", { replace: true });
   };
 
   return (
     <div className="min-h-screen bg-[#151515] text-white flex flex-col">
-      {/* HERO — Wall.svg как фон (как в Home/Winners/Profile) */}
+      {/* HERO — Wall.svg как фон */}
       <div className="relative flex-shrink-0 overflow-hidden">
         <img
           src={wall}
@@ -136,9 +131,9 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* КОНТЕНТ — заезжает на фон, как в Home/Winners */}
-      <div className="-mt-[68vh] sm:-mt-[200px] md:-mt-[240px] lg:-mt-[280px] relative z-10">
-        {/* Заголовок (Settings + иконка) — оставляем на своём месте */}
+      {/* КОНТЕНТ — тот же -mt-[420px], как на других страницах */}
+      <div className="-mt-[420px] relative z-10">
+        {/* Заголовок Settings */}
         <div className="px-4 pt-4 pb-2">
           <h1 className="text-3xl font-bold text-white flex items-center gap-2">
             <img src={icProfile} alt="" className="h-9 w-9" />
@@ -146,10 +141,10 @@ export default function Settings() {
           </h1>
         </div>
 
-        {/* ВЕСЬ ОСТАЛЬНЫЙ КОНТЕНТ — ОПУСКАЕМ НИЖЕ */}
-        <div className="mt-14 md:mt-12 lg:mt-16">
+        {/* Основной контент — чуть ниже */}
+        <div className="mt-16 md:mt-20">
           {/* userId + Back */}
-          <div className="pt-4 pb-4">
+          <div className="pt-2 pb-4">
             <div className="w-[90%] mx-auto px-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -243,7 +238,7 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Go out — фиксировано, как и было */}
+          {/* Go out — фиксировано, 14vh от нижнего края */}
           <div
             className="fixed left-4 flex justify-start"
             style={{ bottom: "14vh" }}
@@ -261,3 +256,4 @@ export default function Settings() {
     </div>
   );
 }
+

@@ -36,7 +36,6 @@ export default function Profile() {
 
   const CLAIM_AMOUNT = 500;
 
-  // Редирект только когда init завершён и токена нет
   useEffect(() => {
     if (!authLoading && !token) {
       navigate("/login", { replace: true });
@@ -48,31 +47,22 @@ export default function Profile() {
     d1.getUTCMonth() === d2.getUTCMonth() &&
     d1.getUTCDate() === d2.getUTCDate();
 
-  // Основной загрузчик
   const fetchAll = useCallback(async () => {
     if (authLoading || !token) return;
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
     try {
-      // 1) /api/me — внешний ID + флаг одноразовой модалки
       const me = await api("/api/me", { token });
       const extId =
-        me?.external_id ??
-        me?.ledger_user_id ??
-        me?.auth_user_id ??
-        me?.user_id;
+        me?.external_id ?? me?.ledger_user_id ?? me?.auth_user_id ?? me?.user_id;
       setUserId(extId != null ? String(extId) : "—");
 
-      // Показываем бонусную модалку при необходимости
       if (me?.should_show_claim_denied) {
-        api("/api/claim-denied-ack", { method: "POST", token }).catch(
-          () => {}
-        );
+        api("/api/claim-denied-ack", { method: "POST", token }).catch(() => {});
         setShowClaimBonus(true);
       }
 
-      // 2) /api/winners/my — фактические выигрыши
       const my = await api("/api/winners/my", { token });
       const rows =
         (my?.winnings || []).map((w, idx) => ({
@@ -81,9 +71,7 @@ export default function Profile() {
           date: new Date(w.computed_at).toLocaleDateString(),
           amount: `€${Number(w.amount_eur ?? 0).toFixed(2)}`,
           status: "Win",
-          claimed: Boolean(
-            w.claimed ?? (w.claimed_at ? true : false)
-          ),
+          claimed: Boolean(w.claimed ?? (w.claimed_at ? true : false)),
         })) ?? [];
       setWins(rows);
     } catch (e) {
@@ -98,14 +86,12 @@ export default function Profile() {
     }
   }, [authLoading, token, navigate]);
 
-  // Стартовый фетч
   useEffect(() => {
     if (!authLoading && token) {
       fetchAll();
     }
   }, [authLoading, token, fetchAll]);
 
-  // Есть ли на сегодня незаклейменный выигрыш?
   const hasUnclaimedToday = useMemo(() => {
     if (!wins?.length) return false;
     const todayUTC = new Date();
@@ -116,7 +102,6 @@ export default function Profile() {
     });
   }, [wins]);
 
-  // Общий обработчик «забрать бонус»
   const handleClaim = useCallback(async () => {
     try {
       const resp = await api("/api/claim-bonus", {
@@ -125,10 +110,8 @@ export default function Profile() {
         body: { amount: CLAIM_AMOUNT, reason: "bonus" },
       });
 
-      // Показать подтверждение
       setShowConfirm(true);
 
-      // Пушим новое состояние прогресса на Main (если открыт)
       const ui = resp?.ui_progress;
       const amount = ui?.amount_eur;
       const cap = ui?.cap_eur;
@@ -145,7 +128,6 @@ export default function Profile() {
         );
       }
 
-      // Обновить таблицу
       await fetchAll();
     } catch (e) {
       console.error("claim-bonus failed", e);
@@ -158,7 +140,7 @@ export default function Profile() {
 
   return (
     <div className="min-h-screen bg-[#151515] text-white flex flex-col">
-      {/* HERO — Wall.svg как фон (как в Home/Winners) */}
+      {/* HERO — Wall.svg как фон */}
       <div className="relative flex-shrink-0 overflow-hidden">
         <img
           src={wall}
@@ -178,8 +160,8 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* КОНТЕНТ — заезжает на фон, как в Home */}
-      <div className="-mt-[68vh] sm:-mt-[200px] md:-mt-[240px] lg:-mt-[280px] relative z-10">
+      {/* КОНТЕНТ — общий -mt-[420px] */}
+      <div className="-mt-[420px] relative z-10">
         {/* Заголовок */}
         <div className="px-4 pt-4 pb-2">
           <h1 className="text-3xl font-bold text-white flex items-center gap-2">
@@ -188,10 +170,10 @@ export default function Profile() {
           </h1>
         </div>
 
-        {/* Остальной контент обёрнут и чуть опущен вниз */}
-        <div className="mt-14 md:mt-12 lg:mt-16">
+        {/* Основной контент — чуть ниже */}
+        <div className="mt-16 md:mt-20">
           {/* User ID + Settings */}
-          <div className="pt-4 pb-4">
+          <div className="pt-2 pb-4">
             <div className="w-[90%] mx-auto px-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -223,15 +205,9 @@ export default function Profile() {
             >
               <div className="px-4 pt-4 pb-1">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm opacity-70">
-                    {t("myWinnings")}
-                  </div>
+                  <div className="text-sm opacity-70">{t("myWinnings")}</div>
                   <div className="flex items-center gap-1 bg-[#FFFE45] text-black px-2 py-1 rounded-full text-xs font-semibold">
-                    <img
-                      src={wincub}
-                      alt="Win"
-                      className="h-3 w-3 mr-1"
-                    />{" "}
+                    <img src={wincub} alt="Win" className="h-3 w-3 mr-1" />{" "}
                     {totalWins || 0}
                   </div>
                 </div>
@@ -270,10 +246,7 @@ export default function Profile() {
                       </tr>
                     ) : (wins || []).length > 0 ? (
                       wins.map((w, i) => (
-                        <tr
-                          key={i}
-                          className="border-b border-white/10"
-                        >
+                        <tr key={i} className="border-b border-white/10">
                           <td className="py-[6px] text-[10px] text-left">
                             {w.n}
                           </td>
@@ -332,7 +305,7 @@ export default function Profile() {
             </button>
           </div>
 
-          {/* Кнопка «Claim Bonus» — только если сегодня есть незаклейменный выигрыш */}
+          {/* Claim Bonus button */}
           {hasUnclaimedToday && (
             <ClaimBonusButton
               amount={CLAIM_AMOUNT}
@@ -343,14 +316,12 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* Модалка Claim Bonus (автопоказ по one-off флагу) */}
       <ClaimBonusModal
         open={showClaimBonus}
         amount={CLAIM_AMOUNT}
         onConfirm={handleClaim}
       />
 
-      {/* Модалка подтверждения после успешного клейма */}
       <ClaimConfirmationModal
         open={showConfirm}
         onOK={() => setShowConfirm(false)}
@@ -358,4 +329,3 @@ export default function Profile() {
     </div>
   );
 }
-

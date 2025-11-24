@@ -76,7 +76,7 @@ export default function Main() {
 
 
   const applyProgress = () => {
-    const DEMO_AMOUNT = 1500; // временное значение для прогресс-бара
+    const DEMO_AMOUNT = 4500; // временное значение для прогресс-бара
 
     setData((d) => {
       const cap = DEFAULT_CAP
