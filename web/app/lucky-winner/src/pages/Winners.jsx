@@ -81,19 +81,10 @@ export default function Winners() {
     let cancelled = false;
 
     (async () => {
-      // если нет токена — просто убираем лоадер и выходим
-      if (!token) {
-        setData([]);
-        setLoading(false);
-        return;
-      }
-
       setLoading(true);
       try {
         const range = rangeForTab(tab);
-        const res = await api(`/api/winners?range=${encodeURIComponent(range)}`, {
-          token,
-        });
+        const res = await api(`/api/winners?range=${encodeURIComponent(range)}`);
         if (cancelled) return;
 
         let rows = (Array.isArray(res) ? res : []).map((r, i) => {
