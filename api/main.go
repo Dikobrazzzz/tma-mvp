@@ -911,8 +911,8 @@ func (s *Server) UIProgress(c *gin.Context) {
 		amount = capEUR
 	}
 
-	// Следующий «шаг» прогресса — в 00:01 UTC следующего дня
-	resetAt := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 1, 0, 0, time.UTC)
+	// Следующий «шаг» прогресса — в 6:00 UTC (9:00 МСК) следующего дня
+	resetAt := time.Date(now.Year(), now.Month(), now.Day()+1, 6, 0, 0, 0, time.UTC)
 
 	c.JSON(200, gin.H{
 		"draw_id":      todayStr,                  // просто "сегодня", можно не использовать на фронте

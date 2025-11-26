@@ -75,33 +75,18 @@ export default function Main() {
   }, [token, navigate]);
 
 
-  const applyProgress = () => {
-    const DEMO_AMOUNT = 5000; // временное значение для прогресс-бара
-
+  const applyProgress = (amount, capFromServer) => {
     setData((d) => {
-      const cap = DEFAULT_CAP
+      const cap = Math.max(1, Number(capFromServer) || d.cap || DEFAULT_CAP);
+      const a = Math.max(0, Number(amount) || 0);
       return {
         ...d,
         cap,
-        progressAmount: DEMO_AMOUNT,              // всегда 1500
-        progress: Math.min(DEMO_AMOUNT / cap, 1), 
+        progressAmount: a, // сколько накоплено
+        progress: Math.min(a / cap, 1), // 0..1
       };
     });
   };
-
-
-  //const applyProgress = (amount, capFromServer) => {
-  //  setData((d) => {
-   //   const cap = Math.max(1, Number(capFromServer) || d.cap || DEFAULT_CAP);
-    //  const a = Math.max(0, Number(amount) || 0);
-    //  return {
-    //    ...d,
-    //    cap,
-     //   progressAmount: a, // сколько накоплено
-      //  progress: Math.min(a / cap, 1), // 0..1
-    //  };
-  //  });
-//  };
 
   // Первичная загрузка прогресса + поллинг
   useEffect(() => {

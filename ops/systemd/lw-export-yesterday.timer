@@ -1,5 +1,5 @@
 [Timer]
-OnCalendar=*-*-* 00:01:30 UTC
+OnCalendar=*-*-* 06:05:00 UTC
 Persistent=true
 Unit=lw-export-yesterday.service
 

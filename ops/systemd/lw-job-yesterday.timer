@@ -1,4 +1,4 @@
 [Timer]
-OnCalendar=*-*-* 00:01:00 UTC
+OnCalendar=*-*-* 06:03:00 UTC
 Persistent=true
 Unit=lw-job-yesterday.service

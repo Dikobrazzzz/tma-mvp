@@ -4,7 +4,7 @@ Description=Import Lucky Winner (Google Sheet -> lw_ledger, UTC yesterday)
 [Service]
 Type=oneshot
 EnvironmentFile=/opt/tma-mvp/jobs/.env.import
-ExecStart=/opt/tma-mvp/.venv/bin/python /opt/tma-mvp/jobs/gsheets_to_lw_ledger.py
+ExecStart=/opt/tma-mvp/bin/lw_ledger_import_yesterday.sh
 User=root
 Group=root
 WorkingDirectory=/opt/tma-mvp
