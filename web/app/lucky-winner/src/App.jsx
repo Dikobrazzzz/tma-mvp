@@ -20,6 +20,9 @@ import { setOnUnauthorized } from "./api/client";
 import { I18nextProvider } from "react-i18next";
 import i18n from "./i18n";
 
+// Analytics
+import { usePageTracking } from "./analytics/useAnalytics";
+
 function GateWrapper({ children }) {
   console.log("Gate bypassed — rendering children");
   return children;
@@ -36,6 +39,9 @@ function Layout({ children }) {
 
 function AppInner() {
   const navigate = useNavigate();
+
+  // Автоматический трекинг страниц и сессий
+  usePageTracking();
 
   useEffect(() => {
     setOnUnauthorized(() => () => navigate("/login", { replace: true }));

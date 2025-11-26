@@ -21,6 +21,9 @@ import ClaimBonusModal from "../components/ClaimBonusModal";
 import ClaimConfirmationModal from "../components/ClaimConfirmationModal";
 import ClaimBonusButton from "../components/ClaimBonusButton";
 
+// Analytics
+import { trackClick, trackEvent } from "../analytics/analytics";
+
 export default function Profile() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -103,6 +106,7 @@ export default function Profile() {
   }, [wins]);
 
   const handleClaim = useCallback(async () => {
+    trackClick("claim_bonus_btn", "/profile", { amount: CLAIM_AMOUNT });
     try {
       const resp = await api("/api/claim-bonus", {
         method: "POST",
@@ -111,6 +115,7 @@ export default function Profile() {
       });
 
       setShowConfirm(true);
+      trackEvent("claim_bonus_success", { page: "/profile", amount: CLAIM_AMOUNT });
 
       const ui = resp?.ui_progress;
       const amount = ui?.amount_eur;
@@ -131,6 +136,7 @@ export default function Profile() {
       await fetchAll();
     } catch (e) {
       console.error("claim-bonus failed", e);
+      trackEvent("claim_bonus_error", { page: "/profile", error: e?.error });
     } finally {
       setShowClaimBonus(false);
     }
@@ -184,7 +190,10 @@ export default function Profile() {
                 </div>
                 <button
                   className="p-2 text-[#FFFE45] bg-transparent"
-                  onClick={() => navigate("/settings")}
+                  onClick={() => {
+                    trackClick("settings_btn", "/profile");
+                    navigate("/settings");
+                  }}
                   aria-label="Settings"
                 >
                   <img src={setting} alt="Settings" className="h-5 w-5" />
@@ -295,6 +304,7 @@ export default function Profile() {
                   "0 32px 60px rgba(0,0,0,0.14)",
               }}
               onClick={() => {
+                trackClick("support_btn", "/profile");
                 const tg = window.Telegram?.WebApp;
                 const url = "https://win888strazci.com/en/office/support";
                 if (tg?.openLink) tg.openLink(url);

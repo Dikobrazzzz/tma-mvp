@@ -147,6 +147,8 @@ func main() {
 		api.POST("/verify/send", s.VerifySend)
 		api.POST("/verify/check", s.VerifyCheck)
                 api.POST("/analytics/email-not-found", s.EmailNotFoundShown)
+                api.POST("/analytics/track", s.AnalyticsTrack)
+                api.POST("/analytics/batch", s.AnalyticsBatch)
 
                 api.GET("/ui-progress", s.UIProgress)
 
@@ -259,6 +261,39 @@ func runMigrations(ctx context.Context, db *pgxpool.Pool) error {
                 return fmt.Errorf("ui_progress: %w", err)
         }
 
+        // аналитика событий пользователей (визиты, клики, навигация)
+        if _, err := db.Exec(ctx, `
+          CREATE TABLE IF NOT EXISTS analytics_events (
+            id            bigserial PRIMARY KEY,
+            ts            timestamptz NOT NULL DEFAULT now(),
+            session_id    text        NOT NULL,
+            event_type    text        NOT NULL,  -- 'page_view' | 'button_click' | 'navigation' | 'session_start' | 'session_end'
+            page          text,                   -- текущая страница
+            target        text,                   -- ID или название кнопки/элемента
+            referrer      text,                   -- откуда пришёл (предыдущая страница)
+            tg_user_id    bigint,                 -- Telegram user ID (если доступен)
+            user_id       bigint,                 -- внутренний user_id (если авторизован)
+            ip            inet,
+            user_agent    text,
+            platform      text,                   -- 'tma' | 'web' | 'ios' | 'android'
+            tg_platform   text,                   -- platform из Telegram WebApp
+            screen_width  int,
+            screen_height int,
+            language      text,
+            duration_ms   int,                    -- длительность (для session_end)
+            extra         jsonb       NOT NULL DEFAULT '{}'::jsonb
+          );
+
+          CREATE INDEX IF NOT EXISTS ae_ts_idx        ON analytics_events (ts DESC);
+          CREATE INDEX IF NOT EXISTS ae_session_idx   ON analytics_events (session_id);
+          CREATE INDEX IF NOT EXISTS ae_type_idx      ON analytics_events (event_type);
+          CREATE INDEX IF NOT EXISTS ae_page_idx      ON analytics_events (page);
+          CREATE INDEX IF NOT EXISTS ae_tg_user_idx   ON analytics_events (tg_user_id) WHERE tg_user_id IS NOT NULL;
+          CREATE INDEX IF NOT EXISTS ae_user_idx      ON analytics_events (user_id) WHERE user_id IS NOT NULL;
+        `); err != nil {
+                return fmt.Errorf("analytics_events: %w", err)
+        }
+
         return nil
 }
 
@@ -342,6 +377,99 @@ func (s *Server) EmailNotFoundShown(c *gin.Context) {
 	email := normalizeEmail(req.Email)
 	logLoginEvent(c, s.DB, email, nil, "email_not_found_modal", "tma", nil)
 	c.JSON(200, gin.H{"ok": true})
+}
+
+// --- Analytics tracking ------------------------------------------------------
+
+type AnalyticsEvent struct {
+	SessionID    string         `json:"session_id"`
+	EventType    string         `json:"event_type"`    // page_view, button_click, navigation, session_start, session_end
+	Page         string         `json:"page"`          // текущая страница
+	Target       string         `json:"target"`        // ID кнопки/элемента
+	Referrer     string         `json:"referrer"`      // предыдущая страница
+	TgUserID     *int64         `json:"tg_user_id"`    // Telegram user ID
+	Platform     string         `json:"platform"`      // tma, web, ios, android
+	TgPlatform   string         `json:"tg_platform"`   // platform из TG WebApp
+	ScreenWidth  *int           `json:"screen_width"`
+	ScreenHeight *int           `json:"screen_height"`
+	Language     string         `json:"language"`
+	DurationMs   *int           `json:"duration_ms"`   // для session_end
+	Extra        map[string]any `json:"extra"`
+}
+
+func (s *Server) AnalyticsTrack(c *gin.Context) {
+	var event AnalyticsEvent
+	if err := c.ShouldBindJSON(&event); err != nil {
+		c.JSON(400, gin.H{"ok": false, "error": "bad request"})
+		return
+	}
+
+	if event.SessionID == "" || event.EventType == "" {
+		c.JSON(400, gin.H{"ok": false, "error": "session_id and event_type required"})
+		return
+	}
+
+	s.saveAnalyticsEvent(c, event)
+	c.JSON(200, gin.H{"ok": true})
+}
+
+func (s *Server) AnalyticsBatch(c *gin.Context) {
+	var req struct {
+		Events []AnalyticsEvent `json:"events"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"ok": false, "error": "bad request"})
+		return
+	}
+
+	if len(req.Events) == 0 {
+		c.JSON(200, gin.H{"ok": true, "saved": 0})
+		return
+	}
+
+	saved := 0
+	for _, event := range req.Events {
+		if event.SessionID == "" || event.EventType == "" {
+			continue
+		}
+		s.saveAnalyticsEvent(c, event)
+		saved++
+	}
+
+	c.JSON(200, gin.H{"ok": true, "saved": saved})
+}
+
+func (s *Server) saveAnalyticsEvent(c *gin.Context, event AnalyticsEvent) {
+	ip := c.ClientIP()
+	ua := c.Request.UserAgent()
+
+	// Пробуем получить user_id из контекста (если авторизован)
+	var userID *int64
+	if v, ok := c.Get("user_id"); ok {
+		if uid, ok2 := v.(int64); ok2 && uid > 0 {
+			userID = &uid
+		}
+	}
+
+	extra := event.Extra
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	extraJSON, _ := json.Marshal(extra)
+
+	_, _ = s.DB.Exec(c, `
+		INSERT INTO analytics_events (
+			session_id, event_type, page, target, referrer,
+			tg_user_id, user_id, ip, user_agent, platform, tg_platform,
+			screen_width, screen_height, language, duration_ms, extra
+		) VALUES (
+			$1, $2, $3, $4, $5,
+			$6, $7, NULLIF($8,'')::inet, $9, $10, $11,
+			$12, $13, $14, $15, $16::jsonb
+		)
+	`, event.SessionID, event.EventType, event.Page, event.Target, event.Referrer,
+		event.TgUserID, userID, ip, ua, event.Platform, event.TgPlatform,
+		event.ScreenWidth, event.ScreenHeight, event.Language, event.DurationMs, string(extraJSON))
 }
 
 

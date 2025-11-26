@@ -11,6 +11,9 @@ import Header from "../components/Header";
 // 🔹 НОВОЕ: импортируем SVG из assets
 import imageMan from "../assets/Image man.optimized.svg";
 
+// Analytics
+import { trackClick } from "../analytics/analytics";
+
 export default function Main() {
   const { t } = useTranslation();
   const { token } = useContext(AuthCtx);
@@ -18,11 +21,20 @@ export default function Main() {
   const SITE_URL = "https://win888strazci.com/en";
 
   const onDepositClick = (e) => {
+    // Track deposit button click
+    trackClick("deposit_btn", "/", { destination: SITE_URL });
+    
     const tg = window?.Telegram?.WebApp;
     if (tg?.openLink) {
       e.preventDefault();
       tg.openLink(SITE_URL);
     }
+  };
+
+  const onMoreDetailsClick = () => {
+    const newExpanded = !expanded;
+    trackClick("more_details_btn", "/", { expanded: newExpanded });
+    setExpanded(newExpanded);
   };
 
   const calculateNextDraw = () => {
@@ -209,7 +221,7 @@ export default function Main() {
 
           <div className="transition-none">
             <span
-              onClick={() => setExpanded((v) => !v)}
+              onClick={onMoreDetailsClick}
               className="text-center block w-full text-[#fffe45] text-sm hover:text-yellow-200 cursor-pointer transition-colors select-none"
             >
               {t("moreDetails")} {expanded ? "▲" : "▼"}

@@ -13,6 +13,9 @@ import BottomNav from "../components/BottomNav";
 import ClaimBonusModal from "../components/ClaimBonusModal";
 import EmailNotFoundModal from "../components/EmailNotFoundModal";
 
+// Analytics
+import { trackClick, trackEvent } from "../analytics/analytics";
+
 export default function Login() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -62,6 +65,7 @@ export default function Login() {
   const styleFor = (hasError) => (hasError ? errorBorder : baseBorder);
 
   const sendCode = async () => {
+    trackClick("send_code_btn", "/login");
     setMsg("");
     const emailNorm = normalizeEmail(email);
     if (!emailNorm) {
@@ -74,6 +78,7 @@ export default function Login() {
     }
     if (firstSent && resendCount >= MAX_RESENDS) {
       setMsg(t("resendLimitReached"));
+      trackEvent("login_resend_limit", { page: "/login" });
       return;
     }
     if (left > 0) return;
@@ -88,6 +93,7 @@ export default function Login() {
         setEmail(emailNorm);
         setShowNotFound(true);
         setErrors((p) => ({ ...p, email: "" }));
+        trackEvent("email_not_found", { page: "/login" });
         return;
       }
       await api("/api/verify/send", {
@@ -98,14 +104,21 @@ export default function Login() {
       setLeft(30);
       const now = Date.now();
       setSentAt(now);
-      if (!firstSent) setFirstSent(true);
-      else setResendCount((n) => n + 1);
+      if (!firstSent) {
+        setFirstSent(true);
+        trackEvent("otp_sent_first", { page: "/login" });
+      } else {
+        setResendCount((n) => n + 1);
+        trackEvent("otp_resent", { page: "/login", resend_count: resendCount + 1 });
+      }
     } catch (e) {
       setMsg(e?.error || t("sendError"));
+      trackEvent("otp_send_error", { page: "/login", error: e?.error });
     }
   };
 
   const login = async () => {
+    trackClick("login_btn", "/login");
     setMsg("");
     const nextErrors = { email: "", code: "" };
     let has = false;
@@ -124,11 +137,15 @@ export default function Login() {
     }
 
     setErrors(nextErrors);
-    if (has) return;
+    if (has) {
+      trackEvent("login_validation_error", { page: "/login" });
+      return;
+    }
 
     const THIRTY_MIN = 30 * 60 * 1000;
     if (!sentAt || Date.now() - sentAt > THIRTY_MIN) {
       setErrors((p) => ({ ...p, code: t("codeExpired") }));
+      trackEvent("login_code_expired", { page: "/login" });
       return;
     }
 
@@ -142,6 +159,7 @@ export default function Login() {
       if (res.token) {
         await setToken(res.token);
         await setAutoLoginDisabled(false);
+        trackEvent("login_success", { page: "/login" });
 
         try {
           const me = await api("/api/me", { token: res.token });
@@ -152,6 +170,7 @@ export default function Login() {
               token: res.token,
             }).catch(() => {});
             setShowClaimBonus(true);
+            trackEvent("claim_bonus_modal_shown", { page: "/login" });
             return;
           }
         } catch (postLoginErr) {
@@ -162,10 +181,15 @@ export default function Login() {
         return;
       }
       setMsg(t("verificationFailed"));
+      trackEvent("login_verification_failed", { page: "/login" });
     } catch (e) {
-      if (e.status === 400)
+      if (e.status === 400) {
         setErrors((p) => ({ ...p, code: e?.error || t("invalidCode") }));
-      else setMsg(e?.error || t("loginError"));
+        trackEvent("login_invalid_code", { page: "/login" });
+      } else {
+        setMsg(e?.error || t("loginError"));
+        trackEvent("login_error", { page: "/login", error: e?.error });
+      }
     } finally {
       setLoading(false);
     }
