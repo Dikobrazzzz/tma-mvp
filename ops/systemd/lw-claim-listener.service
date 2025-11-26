@@ -1,0 +1,21 @@
+[Unit]
+Description=Lucky Winner: realtime Sheets export on claimed_at updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/opt/tma-mvp/jobs/.env.systemd
+Environment=LW_PG_DSN=postgresql://tma:tma@127.0.0.1:5432/tma
+Environment=LW_GSHEET_ID=1TJySNW--QIhNMWjm00Kw0DozSesQMx8oI19fcX4AYWQ
+Environment=LW_GSHEET_TAB=winners
+Environment=LW_GSHEET_CREDS=/opt/tma-mvp/creds/sa_gsheets.json
+WorkingDirectory=/opt/tma-mvp
+User=root
+Group=root
+ExecStart=/opt/tma-mvp/.venv/bin/python /opt/tma-mvp/bin/lw_claim_listener.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

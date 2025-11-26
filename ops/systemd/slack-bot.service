@@ -1,0 +1,14 @@
+[Unit]
+Description=Slack Winners Bot (DB Notifications)
+Wants=network-online.target
+After=network-online.target
+[Service]
+WorkingDirectory=/home/SlackBot
+EnvironmentFile=/home/SlackBot/.env
+ExecStart=/home/SlackBot/slack-bot
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+[Timer]
+OnCalendar=*-*-* 00:01:30 UTC
+Persistent=true
+Unit=lw-export-yesterday.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,21 @@
+[Unit]
+Description=Telegram Bot (aiogram)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/Bot888
+
+# Запускаем из виртуального окружения
+ExecStart=/home/Bot888/venv/bin/python /home/Bot888/main.py
+
+# Запуск от root
+User=root
+Group=root
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

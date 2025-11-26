@@ -1,0 +1,15 @@
+[Unit]
+Description=Lucky Winner: export winners (yesterday) to Google Sheets
+After=lw-job-yesterday.service
+Requires=lw-job-yesterday.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/tma-mvp/jobs/.env
+User=root
+Group=root
+WorkingDirectory=/opt/tma-mvp/jobs
+ExecStart=/opt/tma-mvp/bin/gsheets_export_yesterday.sh
+
+[Install]
+WantedBy=multi-user.target

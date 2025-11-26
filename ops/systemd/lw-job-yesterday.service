@@ -1,0 +1,12 @@
+[Unit]
+Description=Lucky Winner: compute winners for yesterday (UTC)
+After=lw-ledger-import.service
+Requires=lw-ledger-import.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/tma-mvp/jobs/.env
+User=root
+Group=root
+WorkingDirectory=/opt/tma-mvp
+ExecStart=/opt/tma-mvp/bin/lw_job_yesterday.sh
