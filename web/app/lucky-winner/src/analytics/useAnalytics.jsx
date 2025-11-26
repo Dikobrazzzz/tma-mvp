@@ -1,7 +1,7 @@
-// src/analytics/useAnalytics.js
+// src/analytics/useAnalytics.jsx
 // React хук для интеграции аналитики
 
-import { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import {
   trackPageView,

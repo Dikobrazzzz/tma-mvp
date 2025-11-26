@@ -21,7 +21,7 @@ import { I18nextProvider } from "react-i18next";
 import i18n from "./i18n";
 
 // Analytics
-import { usePageTracking } from "./analytics/useAnalytics";
+import { usePageTracking } from "./analytics/useAnalytics.jsx";
 
 function GateWrapper({ children }) {
   console.log("Gate bypassed — rendering children");
