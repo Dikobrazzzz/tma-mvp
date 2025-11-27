@@ -142,3 +142,27 @@ img {
   visibility: visible;
   transition: opacity 0.3s ease;
 }
+
+/* ========== LiveChat Widget ========== */
+
+/* Кнопка чата — поднята над навигацией (BottomNav = 80px + отступ) */
+#chat-widget-container {
+  bottom: 90px !important;
+  transition: bottom 0.2s ease;
+}
+
+/* Когда чат открыт (maximized) — полный экран */
+body.livechat-open #chat-widget-container {
+  bottom: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100vh !important;
+}
+
+/* Скрыть навигацию когда чат открыт */
+body.livechat-open [data-bottom-nav] {
+  display: none !important;
+}

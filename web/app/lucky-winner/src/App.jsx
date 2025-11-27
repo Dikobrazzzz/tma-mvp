@@ -2,6 +2,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import TelegramProvider from "./auth/TelegramProvider";
 import RequireAuth from "./components/RequireAuth";
+import { LiveChatWidget } from "@livechat/widget-react";
 
 import BottomNav from "./components/BottomNav";
 import Main from "./pages/Main";
@@ -132,12 +133,27 @@ function AppInner() {
   );
 }
 
+// Обработчик изменения состояния виджета LiveChat
+function handleLiveChatVisibility({ visibility }) {
+  if (visibility === 'maximized') {
+    // Чат открыт — полный экран
+    document.body.classList.add('livechat-open');
+  } else {
+    // Чат закрыт/свёрнут — вернуть навигацию
+    document.body.classList.remove('livechat-open');
+  }
+}
+
 export default function App() {
   return (
     <I18nextProvider i18n={i18n}>
       <TelegramProvider>
         <BrowserRouter>
           <AppInner />
+          <LiveChatWidget 
+            license="12926034"
+            onVisibilityChanged={handleLiveChatVisibility}
+          />
         </BrowserRouter>
       </TelegramProvider>
     </I18nextProvider>
