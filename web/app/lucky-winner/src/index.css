@@ -142,3 +142,8 @@ img {
   visibility: visible;
   transition: opacity 0.3s ease;
 }
+
+/* LiveChat Widget - поднять над нижней навигацией */
+#chat-widget-container {
+  bottom: 90px !important;
+}

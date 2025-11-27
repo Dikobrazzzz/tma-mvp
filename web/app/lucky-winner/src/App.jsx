@@ -2,6 +2,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import TelegramProvider from "./auth/TelegramProvider";
 import RequireAuth from "./components/RequireAuth";
+import { LiveChatWidget } from "@livechat/widget-react";
 
 import BottomNav from "./components/BottomNav";
 import Main from "./pages/Main";
@@ -138,6 +139,7 @@ export default function App() {
       <TelegramProvider>
         <BrowserRouter>
           <AppInner />
+          <LiveChatWidget license="12926034" />
         </BrowserRouter>
       </TelegramProvider>
     </I18nextProvider>
