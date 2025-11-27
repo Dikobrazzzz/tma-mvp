@@ -59,7 +59,7 @@ def winners_df_for_day(day_str: str) -> pd.DataFrame:
             ORDER BY email_norm, d, c DESC, country ASC
         )
         SELECT
-            w.draw_id                             AS "Date",
+            CURRENT_DATE                          AS "Date",
             w.email_norm                          AS "Email",
             w.user_id                             AS "AccountID",
             COALESCE(dc.country, NULL)            AS "Country",

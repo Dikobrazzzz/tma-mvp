@@ -19,3 +19,6 @@ export LW_TO="$N"
 
 exec /opt/tma-mvp/.venv/bin/python /opt/tma-mvp/jobs/gsheets_to_lw_ledger.py
 
+
+
+

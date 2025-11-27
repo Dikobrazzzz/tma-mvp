@@ -15,6 +15,7 @@ import icProfile from "../assets/ic_Profile.svg";
 import exit from "../assets/Exit.svg";
 import languageIcon from "../assets/Language.svg";
 import Header from "../components/Header";
+import { LiveChatWidget } from "@livechat/widget-react";
 
 export default function Settings() {
   const { t, i18n } = useTranslation();
@@ -253,6 +254,9 @@ export default function Settings() {
           </div>
         </div>
       </div>
+      
+      {/* LiveChat Widget */}
+      <LiveChatWidget license="12926034" />
     </div>
   );
 }
