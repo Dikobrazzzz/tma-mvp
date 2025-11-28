@@ -1041,13 +1041,15 @@ func (s *Server) UIProgress(c *gin.Context) {
 	if amount > capEUR {
 		amount = capEUR
 	}
+	// Округляем до целого
+	amountRounded := int(amount + 0.5)
 
 	// Следующий «шаг» прогресса — в 6:00 UTC (9:00 МСК) следующего дня
 	resetAt := time.Date(now.Year(), now.Month(), now.Day()+1, 6, 0, 0, 0, time.UTC)
 
 	c.JSON(200, gin.H{
 		"draw_id":      todayStr,                  // просто "сегодня", можно не использовать на фронте
-		"amount_eur":   amount,                    // накопленный банк 0..5000
+		"amount_eur":   amountRounded,             // накопленный банк 0..5000 (округлённо)
 		"cap_eur":      capEUR,                    // фронт делит на это
 		"reset_at_utc": resetAt.Format(time.RFC3339),
 	})
