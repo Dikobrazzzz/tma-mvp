@@ -1030,11 +1030,13 @@ func (s *Server) UIProgress(c *gin.Context) {
 		tc = totalClaimed.Float64
 	}
 
-	// Накопленный "не заклеймленный" банк
-	amount := tp - tc
-	if amount < 0 {
-		amount = 0
+	// Накопленный банк = 1/5 от незабранной суммы за все прошлые дни
+	// Каждый день разыгрывается ~500€, если не забрали — 500/5 = 100€ добавляется к прогрессу
+	unclaimed := tp - tc
+	if unclaimed < 0 {
+		unclaimed = 0
 	}
+	amount := unclaimed / 5.0
 	if amount > capEUR {
 		amount = capEUR
 	}
