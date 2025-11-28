@@ -2,6 +2,7 @@
 import os
 import argparse
 import random
+import requests
 from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
@@ -492,6 +493,32 @@ def main():
             )
         con.commit()
     print(f"[ok] winners upserted for draw_id={draw_id}")
+
+    # --- Customer.io webhook: отправляем пуш для каждого победителя ---
+    cio_webhook_url = os.getenv("CUSTOMERIO_WEBHOOK_URL")
+    if cio_webhook_url:
+        computed_at = datetime.now(timezone.utc).isoformat()
+        sent_count = 0
+        for _, r in result.iterrows():
+            payload = {
+                "email": r["email_norm"],
+                "user_id": int(r["AccountID"]) if pd.notna(r["AccountID"]) else 0,
+                "reward_amount": float(r["final_reward"]),
+                "draw_id": draw_id,
+                "claimed_at": computed_at,  # момент определения победителя
+                "event_name": "lucky_winner_reward"
+            }
+            try:
+                resp = requests.post(cio_webhook_url, json=payload, timeout=5)
+                if resp.status_code < 300:
+                    sent_count += 1
+                else:
+                    print(f"[warn] customer.io webhook failed for {r['email_norm']}: {resp.status_code}")
+            except Exception as e:
+                print(f"[error] customer.io webhook error for {r['email_norm']}: {e}")
+        print(f"[ok] customer.io webhooks sent: {sent_count}/{len(result)}")
+    else:
+        print("[info] CUSTOMERIO_WEBHOOK_URL not set, skipping webhooks")
 
     # Триггер модалки Claim Bonus
     unique_emails = result["email_norm"].dropna().unique().tolist()
