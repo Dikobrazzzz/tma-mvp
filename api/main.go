@@ -76,7 +76,8 @@ type CustomerIoPayload struct {
     UserID       int64   `json:"user_id"`
     RewardAmount float64 `json:"reward_amount"`
     DrawID       string  `json:"draw_id"`
-    ClaimedAt    string  `json:"claimed_at"` // RFC3339
+    ClaimedAt    string  `json:"claimed_at"`    // RFC3339
+    EventName    string  `json:"event_name"`
 }
 
 func sendCustomerIoBonus(ctx context.Context, payload CustomerIoPayload) error {
@@ -1186,7 +1187,8 @@ func (s *Server) ClaimBonus(c *gin.Context) {
     //   "user_id": 1454626993,
     //   "reward_amount": 25.5,
     //   "draw_id": "2025-11-19",
-    //   "claimed_at": "2025-11-20T12:34:56Z"
+    //   "claimed_at": "2025-11-20T12:34:56Z",
+    //   "event_name": "lucky_winner_reward"
     // }
     cioPayload := CustomerIoPayload{
         Email:        emailNorm,
@@ -1194,6 +1196,7 @@ func (s *Server) ClaimBonus(c *gin.Context) {
         RewardAmount: req.Amount,
         DrawID:       today,
         ClaimedAt:    claimedAt.Format(time.RFC3339),
+        EventName:    "lucky_winner_reward",
     }
 
     // Шлём асинхронно, чтобы не тормозить ответ в мини-апп
