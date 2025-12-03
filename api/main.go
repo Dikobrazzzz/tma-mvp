@@ -1087,7 +1087,9 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		return
 	}
 
-	today := time.Now().UTC().Format("2006-01-02")
+	// draw_id = вчерашняя дата, т.к. скрипт lw_job запускается в 06:03 UTC
+	// и записывает победителей с draw_id = yesterday
+	yesterday := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
 
 	ctx := c.Request.Context()
 	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{})
@@ -1097,8 +1099,8 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// 0) Проверяем, что у пользователя действительно есть незаклеймленный выигрыш за сегодня
-	var existToday bool
+	// 0) Проверяем, что у пользователя есть незаклеймленный выигрыш за вчера
+	var existYesterday bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
 		  SELECT 1
@@ -1107,12 +1109,12 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		    AND draw_id    = $2
 		    AND claimed_at IS NULL
 		)
-	`, emailNorm, today).Scan(&existToday); err != nil {
+	`, emailNorm, yesterday).Scan(&existYesterday); err != nil {
 		c.JSON(500, gin.H{"error": "db error"})
 		return
 	}
-	if !existToday {
-		c.JSON(403, gin.H{"error": "not_available_today"})
+	if !existYesterday {
+		c.JSON(403, gin.H{"error": "no_unclaimed_reward"})
 		return
 	}
 
@@ -1131,7 +1133,7 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		return
 	}
 
-	// 2) Помечаем «сегодняшний» выигрыш(и) как заклеймленные и привязываем user_id.
+	// 2) Помечаем «вчерашний» выигрыш(и) как заклеймленные и привязываем user_id.
 	cmdTag, err := tx.Exec(ctx, `
 		UPDATE public.lw_winners
 		   SET claimed_at = COALESCE(claimed_at, NOW()),
@@ -1139,7 +1141,7 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		 WHERE email_norm = $2::citext
 		   AND draw_id    = $3
 		   AND claimed_at IS NULL
-	`, userID, emailNorm, today)
+	`, userID, emailNorm, yesterday)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "winners update error"})
 		return
@@ -1196,7 +1198,7 @@ func (s *Server) ClaimBonus(c *gin.Context) {
         Email:        emailNorm,
         UserID:       userID,
         RewardAmount: req.Amount,
-        DrawID:       today,
+        DrawID:       yesterday,
         ClaimedAt:    claimedAt.Format(time.RFC3339),
         EventName:    "lucky_winner_reward",
     }
