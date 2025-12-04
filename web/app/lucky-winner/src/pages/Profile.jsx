@@ -96,15 +96,19 @@ export default function Profile() {
   }, [authLoading, token, fetchAll]);
 
   // Кнопка Claim показывается для незабранных выигрышей за вчера
-  // (скрипт lw_job запускается в 06:03 UTC и создаёт записи с draw_id = yesterday)
+  // Розыгрыш проходит в UTC+6, поэтому считаем даты в этой таймзоне
   const hasUnclaimedYesterday = useMemo(() => {
     if (!wins?.length) return false;
-    const yesterdayUTC = new Date();
-    yesterdayUTC.setUTCDate(yesterdayUTC.getUTCDate() - 1);
+    // Получаем "вчера" в UTC+6
+    const nowUtcPlus6 = new Date(Date.now() + 6 * 60 * 60 * 1000);
+    const yesterdayUtcPlus6 = new Date(nowUtcPlus6);
+    yesterdayUtcPlus6.setUTCDate(yesterdayUtcPlus6.getUTCDate() - 1);
     return wins.some((w) => {
       if (!w?.computed_at) return false;
       const d = new Date(w.computed_at);
-      return isSameUTCDate(d, yesterdayUTC) && !w.claimed;
+      // Сравниваем даты в UTC+6
+      const dUtcPlus6 = new Date(d.getTime() + 6 * 60 * 60 * 1000);
+      return isSameUTCDate(dUtcPlus6, yesterdayUtcPlus6) && !w.claimed;
     });
   }, [wins]);
 
