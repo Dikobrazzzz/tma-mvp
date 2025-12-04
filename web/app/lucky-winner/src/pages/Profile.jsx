@@ -5,7 +5,6 @@ import {
   useContext,
   useCallback,
   useRef,
-  useMemo,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -17,12 +16,9 @@ import icProfile from "../assets/ic_Profile.svg";
 import setting from "../assets/setting.svg";
 import wincub from "../assets/wincub.svg";
 import Header from "../components/Header";
-import ClaimBonusModal from "../components/ClaimBonusModal";
-import ClaimConfirmationModal from "../components/ClaimConfirmationModal";
-import ClaimBonusButton from "../components/ClaimBonusButton";
 
 // Analytics
-import { trackClick, trackEvent } from "../analytics/analytics";
+import { trackClick } from "../analytics/analytics";
 
 export default function Profile() {
   const { t } = useTranslation();
@@ -33,22 +29,13 @@ export default function Profile() {
   const [userId, setUserId] = useState("");
   const [wins, setWins] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [showClaimBonus, setShowClaimBonus] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
   const fetchingRef = useRef(false);
-
-  const CLAIM_AMOUNT = 500;
 
   useEffect(() => {
     if (!authLoading && !token) {
       navigate("/login", { replace: true });
     }
   }, [authLoading, token, navigate]);
-
-  const isSameUTCDate = (d1, d2) =>
-    d1.getUTCFullYear() === d2.getUTCFullYear() &&
-    d1.getUTCMonth() === d2.getUTCMonth() &&
-    d1.getUTCDate() === d2.getUTCDate();
 
   const fetchAll = useCallback(async () => {
     if (authLoading || !token) return;
@@ -60,11 +47,6 @@ export default function Profile() {
       const extId =
         me?.external_id ?? me?.ledger_user_id ?? me?.auth_user_id ?? me?.user_id;
       setUserId(extId != null ? String(extId) : "—");
-
-      if (me?.should_show_claim_denied) {
-        api("/api/claim-denied-ack", { method: "POST", token }).catch(() => {});
-        setShowClaimBonus(true);
-      }
 
       const my = await api("/api/winners/my", { token });
       const rows =
@@ -94,56 +76,6 @@ export default function Profile() {
       fetchAll();
     }
   }, [authLoading, token, fetchAll]);
-
-  // Кнопка Claim показывается для незабранных выигрышей за вчера (UTC)
-  // Окно клейма: с 06:03 UTC до 06:03 UTC следующего дня (~24 часа)
-  const hasUnclaimedYesterday = useMemo(() => {
-    if (!wins?.length) return false;
-    const yesterdayUTC = new Date();
-    yesterdayUTC.setUTCDate(yesterdayUTC.getUTCDate() - 1);
-    return wins.some((w) => {
-      if (!w?.computed_at) return false;
-      const d = new Date(w.computed_at);
-      return isSameUTCDate(d, yesterdayUTC) && !w.claimed;
-    });
-  }, [wins]);
-
-  const handleClaim = useCallback(async () => {
-    trackClick("claim_bonus_btn", "/profile", { amount: CLAIM_AMOUNT });
-    try {
-      const resp = await api("/api/claim-bonus", {
-        method: "POST",
-        token,
-        body: { amount: CLAIM_AMOUNT, reason: "bonus" },
-      });
-
-      setShowConfirm(true);
-      trackEvent("claim_bonus_success", { page: "/profile", amount: CLAIM_AMOUNT });
-
-      const ui = resp?.ui_progress;
-      const amount = ui?.amount_eur;
-      const cap = ui?.cap_eur;
-
-      if (typeof amount === "number") {
-        const detail = { amount_eur: amount };
-        if (typeof cap === "number") {
-          detail.cap_eur = cap;
-        }
-        window.dispatchEvent(
-          new CustomEvent("ui-progress", {
-            detail,
-          })
-        );
-      }
-
-      await fetchAll();
-    } catch (e) {
-      console.error("claim-bonus failed", e);
-      trackEvent("claim_bonus_error", { page: "/profile", error: e?.error });
-    } finally {
-      setShowClaimBonus(false);
-    }
-  }, [token, fetchAll]);
 
   const totalWins = wins.length;
 
@@ -318,27 +250,8 @@ export default function Profile() {
             </button>
           </div>
 
-          {/* Claim Bonus button */}
-          {hasUnclaimedYesterday && (
-            <ClaimBonusButton
-              amount={CLAIM_AMOUNT}
-              onClick={() => setShowClaimBonus(true)}
-              className="mb-6"
-            />
-          )}
         </div>
       </div>
-
-      <ClaimBonusModal
-        open={showClaimBonus}
-        amount={CLAIM_AMOUNT}
-        onConfirm={handleClaim}
-      />
-
-      <ClaimConfirmationModal
-        open={showConfirm}
-        onOK={() => setShowConfirm(false)}
-      />
     </div>
   );
 }

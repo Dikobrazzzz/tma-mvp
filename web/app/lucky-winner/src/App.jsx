@@ -1,6 +1,6 @@
 // /opt/tma-mvp/web/app/lucky-winner/src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
-import TelegramProvider from "./auth/TelegramProvider";
+import TelegramProvider, { AuthCtx } from "./auth/TelegramProvider";
 import RequireAuth from "./components/RequireAuth";
 import { LiveChatWidget } from "@livechat/widget-react";
 
@@ -14,9 +14,10 @@ import Winners from "./pages/Winners";
 import CodeError from "./pages/CodeError";
 import Error403 from "./pages/Error403";
 import ClaimDenied from "./pages/ClaimDenied";
+import ClaimBonusModal from "./components/ClaimBonusModal";
 
-import { useEffect } from "react";
-import { setOnUnauthorized } from "./api/client";
+import { useEffect, useState, useContext, useCallback } from "react";
+import { setOnUnauthorized, api } from "./api/client";
 
 import { I18nextProvider } from "react-i18next";
 import i18n from "./i18n";
@@ -40,6 +41,9 @@ function Layout({ children }) {
 
 function AppInner() {
   const navigate = useNavigate();
+  const { token, loading: authLoading } = useContext(AuthCtx);
+  const [showClaimBonus, setShowClaimBonus] = useState(false);
+  const CLAIM_AMOUNT = 500;
 
   // Автоматический трекинг страниц и сессий
   usePageTracking();
@@ -48,7 +52,45 @@ function AppInner() {
     setOnUnauthorized(() => () => navigate("/login", { replace: true }));
   }, [navigate]);
 
+  // Проверяем should_show_claim_denied при наличии токена
+  useEffect(() => {
+    if (authLoading || !token) return;
+    
+    const checkClaimBonus = async () => {
+      try {
+        const me = await api("/api/me", { token });
+        if (me?.should_show_claim_denied) {
+          setShowClaimBonus(true);
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+    
+    checkClaimBonus();
+  }, [authLoading, token]);
+
+  const handleClaim = useCallback(async () => {
+    try {
+      await api("/api/claim-bonus", {
+        method: "POST",
+        token,
+        body: { amount: CLAIM_AMOUNT, reason: "bonus" },
+      });
+    } catch (e) {
+      console.error("claim-bonus failed", e);
+    } finally {
+      setShowClaimBonus(false);
+    }
+  }, [token]);
+
   return (
+    <>
+    <ClaimBonusModal
+      open={showClaimBonus}
+      amount={CLAIM_AMOUNT}
+      onConfirm={handleClaim}
+    />
     <Routes>
       <Route
         path="/"
@@ -130,6 +172,7 @@ function AppInner() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 }
 
