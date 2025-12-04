@@ -890,10 +890,9 @@ func (s *Server) MeProtected(c *gin.Context) {
 		ledgerPtr = &v
 	}
 
-	// Показываем модалку если есть незаклеймленный выигрыш за вчера
-	// Розыгрыш проходит в UTC+6, поэтому считаем даты в этой таймзоне
-	utcPlus6 := time.FixedZone("UTC+6", 6*60*60)
-	yesterday := time.Now().In(utcPlus6).AddDate(0, 0, -1).Format("2006-01-02")
+	// Показываем модалку если есть незаклеймленный выигрыш за вчера (UTC)
+	// Окно клейма: с 06:03 UTC до 06:03 UTC следующего дня (~24 часа)
+	yesterday := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
 	var shouldShow bool
 	_ = s.DB.QueryRow(c, `
 		SELECT EXISTS (
@@ -1090,9 +1089,9 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		return
 	}
 
-	// draw_id = вчерашняя дата в UTC+6, т.к. розыгрыш проходит в этой таймзоне
-	utcPlus6 := time.FixedZone("UTC+6", 6*60*60)
-	yesterday := time.Now().In(utcPlus6).AddDate(0, 0, -1).Format("2006-01-02")
+	// draw_id = вчерашняя дата в UTC (как в скрипте lw_job)
+	// Окно клейма: с 06:03 UTC до 06:03 UTC следующего дня (~24 часа)
+	yesterday := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
 
 	ctx := c.Request.Context()
 	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{})
