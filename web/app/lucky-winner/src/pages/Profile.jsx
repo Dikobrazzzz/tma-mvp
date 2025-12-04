@@ -95,13 +95,16 @@ export default function Profile() {
     }
   }, [authLoading, token, fetchAll]);
 
-  const hasUnclaimedToday = useMemo(() => {
+  // Кнопка Claim показывается для незабранных выигрышей за вчера
+  // (скрипт lw_job запускается в 06:03 UTC и создаёт записи с draw_id = yesterday)
+  const hasUnclaimedYesterday = useMemo(() => {
     if (!wins?.length) return false;
-    const todayUTC = new Date();
+    const yesterdayUTC = new Date();
+    yesterdayUTC.setUTCDate(yesterdayUTC.getUTCDate() - 1);
     return wins.some((w) => {
       if (!w?.computed_at) return false;
       const d = new Date(w.computed_at);
-      return isSameUTCDate(d, todayUTC) && !w.claimed;
+      return isSameUTCDate(d, yesterdayUTC) && !w.claimed;
     });
   }, [wins]);
 
@@ -316,7 +319,7 @@ export default function Profile() {
           </div>
 
           {/* Claim Bonus button */}
-          {hasUnclaimedToday && (
+          {hasUnclaimedYesterday && (
             <ClaimBonusButton
               amount={CLAIM_AMOUNT}
               onClick={handleClaim}
