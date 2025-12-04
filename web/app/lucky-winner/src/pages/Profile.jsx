@@ -322,7 +322,7 @@ export default function Profile() {
           {hasUnclaimedYesterday && (
             <ClaimBonusButton
               amount={CLAIM_AMOUNT}
-              onClick={handleClaim}
+              onClick={() => setShowClaimBonus(true)}
               className="mb-6"
             />
           )}

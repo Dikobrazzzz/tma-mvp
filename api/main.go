@@ -876,28 +876,19 @@ func (s *Server) MeProtected(c *gin.Context) {
 		ledgerPtr = &v
 	}
 
-	// Показываем модалку ТОЛЬКО если:
-	// 1) есть незаклеймленный выигрыш за сегодняшнюю дату (UTC),
-	// 2) и в claim_denied_oneoff нет отметки shown_at (NULL).
-	today := time.Now().UTC().Format("2006-01-02")
+	// Показываем модалку если есть незаклеймленный выигрыш за вчера
+	// (скрипт lw_job запускается в 06:03 UTC и создаёт записи с draw_id = yesterday)
+	yesterday := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
 	var shouldShow bool
 	_ = s.DB.QueryRow(c, `
-		SELECT
-		  EXISTS (
+		SELECT EXISTS (
 		    SELECT 1
 		    FROM public.lw_winners w
 		    WHERE w.email_norm = $1::citext
 		      AND w.draw_id    = $2
 		      AND w.claimed_at IS NULL
-		  )
-		  AND
-		  EXISTS (
-		    SELECT 1
-		    FROM public.claim_denied_oneoff cdo
-		    WHERE cdo.email_norm = $1::citext
-		      AND cdo.shown_at IS NULL
-		  ) AS should_show
-	`, emailNorm, today).Scan(&shouldShow)
+		) AS should_show
+	`, emailNorm, yesterday).Scan(&shouldShow)
 
 	c.JSON(200, gin.H{
 		"email":                    emailNorm,
