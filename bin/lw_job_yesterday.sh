@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# .env с параметрами механики/экспорта и (если нужно) LW_PG_DSN
 [ -f /opt/tma-mvp/jobs/.env ] && . /opt/tma-mvp/jobs/.env
 
 Y=$(date -u -d "yesterday" +%Y-%m-%d)

@@ -1,4 +1,3 @@
-// src/pages/Login.jsx
 import { useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -13,7 +12,6 @@ import BottomNav from "../components/BottomNav";
 import ClaimBonusModal from "../components/ClaimBonusModal";
 import EmailNotFoundModal from "../components/EmailNotFoundModal";
 
-// Analytics
 import { trackClick, trackEvent } from "../analytics/analytics";
 
 export default function Login() {
@@ -196,8 +194,11 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[#151515] text-white flex flex-col">
-      {/* HERO — Wall как фон */}
+    <div className="min-h-screen bg-[#151515] text-white flex flex-col relative">
+      <div className="absolute inset-x-0 top-0 z-[400]">
+        <Header />
+      </div>
+
       <div className="relative flex-shrink-0 overflow-hidden">
         <img
           src={wall}
@@ -211,15 +212,9 @@ export default function Login() {
             transform: "translateY(-160px)",
           }}
         />
-
-        <div className="absolute inset-x-0 top-0 z-10">
-          <Header />
-        </div>
       </div>
 
-      {/* КОНТЕНТ — общий -mt-[420px], как на Winners */}
       <div className="-mt-[420px] relative z-10 flex-1 flex flex-col">
-        {/* Заголовок Login + иконка */}
         <div className="px-4 pt-4 pb-2">
           <h1 className="text-3xl font-bold text-white flex items-center gap-2">
             <img src={icProfile} alt="" className="h-9 w-9" />
@@ -227,7 +222,6 @@ export default function Login() {
           </h1>
         </div>
 
-        {/* Остальной контент — форма и прочее чуть ниже */}
         <form
           className="flex-1 flex flex-col overflow-y-auto mt-6"
           noValidate
@@ -236,7 +230,6 @@ export default function Login() {
             if (!loading) login();
           }}
         >
-          {/* Email */}
           <div className="transition-none flex justify-center">
             <div className="w-[90%]">
               <div
@@ -244,7 +237,7 @@ export default function Login() {
                 style={styleFor(!!errors.email)}
               >
                 <input
-                  className="w-full bg-transparent rounded-3xl text-white outline-none text-[12px] md:text-[14px] text-left py-2"
+                  className="w-full bg-transparent rounded-3xl text-white placeholder-gray-400 outline-none text-[12px] md:text-[14px] text-left py-2"
                   placeholder={t("email")}
                   value={email}
                   onChange={(e) => {
@@ -268,7 +261,6 @@ export default function Login() {
             </div>
           </div>
 
-          {/* Send code */}
           {(() => {
             const disabled =
               left > 0 || (firstSent && resendCount >= MAX_RESENDS);
@@ -301,7 +293,6 @@ export default function Login() {
             );
           })()}
 
-          {/* Enter code */}
           <div className="transition-none flex justify-center mt-[4vh]">
             <div className="w-[90%]">
               <div
@@ -309,7 +300,7 @@ export default function Login() {
                 style={styleFor(!!errors.code)}
               >
                 <input
-                  className="w-full bg-transparent rounded-3xl text-white outline-none text-[12px] md:text-[14px] text-left py-2"
+                  className="w-full bg-transparent rounded-3xl text-white placeholder-gray-400 outline-none text-[12px] md:text-[14px] text-left py-2"
                   placeholder={t("enterCode")}
                   value={code}
                   onChange={(e) => {
@@ -338,22 +329,19 @@ export default function Login() {
             </div>
           </div>
 
-          {/* Spacer */}
           <div className="h-[10vh]" />
 
-          {/* Timer */}
           <div className="w-full flex justify-center mb-2">
             <div
               className={`h-4 flex items-center text-[10px] font-semibold text-center ${
                 left > 0 ? "" : "invisible"
               }`}
             >
-              <span className="text-[#FFFE45]">{left}</span>{" "}
-              <span className="text-gray-400">{t("secondLeft")}</span>
+              <span className="text-[#FFFE45]">{left}</span>
+              <span className="text-gray-400 ml-1">{t("secondLeft")}</span>
             </div>
           </div>
 
-          {/* Login button */}
           <div className="transition-none flex justify-center mt-[2vh] mb-4">
             <button
               type="submit"
@@ -374,7 +362,6 @@ export default function Login() {
 
       <BottomNav />
 
-      {/* Claim Bonus — одна кнопка */}
       <ClaimBonusModal
         open={showClaimBonus}
         amount={CLAIM_AMOUNT}

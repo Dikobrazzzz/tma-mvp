@@ -7,7 +7,6 @@ from datetime import datetime, timezone, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-# NEW:
 import sqlalchemy as sa
 
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -16,7 +15,6 @@ def _sheets_service(creds_path: str):
     creds = service_account.Credentials.from_service_account_file(creds_path, scopes=SCOPE)
     return build("sheets", "v4", credentials=creds, cache_discovery=False)
 
-# NEW: удобный конструктор SQLAlchemy-DSN из LW_PG_DSN
 def _sa_dsn():
     d = os.getenv("LW_PG_DSN", "postgresql://tma:tma@127.0.0.1:5432/tma")
     return "postgresql+psycopg://" + d[len("postgresql://"):] if d.startswith("postgresql://") else d
@@ -50,7 +48,6 @@ def winners_df_for_day(day_str: str) -> pd.DataFrame:
             GROUP BY email_norm, d, country
         ),
         daily_country AS (
-            -- берём самую частую страну для email_norm в данном дне
             SELECT DISTINCT ON (email_norm, d)
                 email_norm,
                 d,
@@ -82,7 +79,6 @@ def winners_df_for_day(day_str: str) -> pd.DataFrame:
     return df
 
 
-# NEW: за «вчера» (UTC)
 def winners_df_yesterday() -> pd.DataFrame:
     y = (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat()
     return winners_df_for_day(y)
@@ -140,7 +136,6 @@ def set_claimed_in_sheet(spreadsheet_id: str, sheet_title: str,
                          creds_path: str) -> bool:
     svc = _sheets_service(creds_path)
 
-    # 1) читаем лист
     resp = svc.spreadsheets().values().get(
         spreadsheetId=spreadsheet_id, range=f"{sheet_title}!A:ZZ"
     ).execute()
@@ -151,7 +146,6 @@ def set_claimed_in_sheet(spreadsheet_id: str, sheet_title: str,
     header = [c.strip() for c in values[0]]
     rows = values[1:]
 
-    # 2) индексы нужных колонок
     def col_idx(name: str) -> int:
         try:
             return header.index(name)
@@ -164,10 +158,9 @@ def set_claimed_in_sheet(spreadsheet_id: str, sheet_title: str,
     if min(i_date, i_email, i_claim) < 0:
         return False
 
-    # 3) ищем нужную строку (по точному совпадению даты YYYY-MM-DD и email_norm в нижнем регистре)
     target_row_idx = None
     email_norm_l = (email_norm or "").strip().lower()
-    for ridx, r in enumerate(rows, start=2):  # старт с 2, т.к. A1 – заголовок
+    for ridx, r in enumerate(rows, start=2):
         d = (r[i_date] if i_date < len(r) else "").strip()
         e = (r[i_email] if i_email < len(r) else "").strip().lower()
         if d == date_str and e == email_norm_l:
@@ -177,7 +170,6 @@ def set_claimed_in_sheet(spreadsheet_id: str, sheet_title: str,
     if not target_row_idx:
         return False
 
-    # 4) пишем Yes/No
     val = "Yes" if claimed else "No"
     rng = f"{sheet_title}!{chr(ord('A') + i_claim)}{target_row_idx}"
     svc.spreadsheets().values().update(

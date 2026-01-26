@@ -1,26 +1,20 @@
 // src/analytics/analytics.js
-// Сервис аналитики для трекинга пользователей
 
 const ANALYTICS_ENDPOINT = "/api/analytics/track";
 const ANALYTICS_BATCH_ENDPOINT = "/api/analytics/batch";
 
-// Генерируем уникальный session_id при загрузке
 let sessionId = null;
 let sessionStartTime = null;
 let lastPage = null;
 let eventQueue = [];
 let flushTimer = null;
 
-// Инициализация сессии
 function initSession() {
   if (sessionId) return sessionId;
-  
-  // Проверяем, есть ли сессия в sessionStorage (для persist между обновлениями страницы)
   const stored = sessionStorage.getItem("analytics_session");
   if (stored) {
     try {
       const data = JSON.parse(stored);
-      // Если сессия не старше 30 минут, используем её
       if (Date.now() - data.startTime < 30 * 60 * 1000) {
         sessionId = data.sessionId;
         sessionStartTime = data.startTime;
@@ -28,20 +22,15 @@ function initSession() {
       }
     } catch {}
   }
-  
-  // Создаём новую сессию
   sessionId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   sessionStartTime = Date.now();
-  
   sessionStorage.setItem("analytics_session", JSON.stringify({
     sessionId,
     startTime: sessionStartTime
   }));
-  
   return sessionId;
 }
 
-// Получаем данные о Telegram WebApp
 function getTelegramData() {
   const tg = window?.Telegram?.WebApp;
   if (!tg) return { tgUserID: null, tgPlatform: null };
@@ -52,7 +41,6 @@ function getTelegramData() {
   };
 }
 
-// Получаем общие данные для события
 function getCommonData() {
   const { tgUserID, tgPlatform } = getTelegramData();
   
@@ -67,15 +55,12 @@ function getCommonData() {
   };
 }
 
-// Отправка события (с debounce через очередь)
 async function sendEvent(eventData) {
   eventQueue.push({
     ...getCommonData(),
     ...eventData,
     ts: new Date().toISOString()
   });
-  
-  // Debounce: отправляем через 500ms или когда накопится 10 событий
   if (eventQueue.length >= 10) {
     flushEvents();
   } else {
@@ -84,7 +69,6 @@ async function sendEvent(eventData) {
   }
 }
 
-// Отправка накопленных событий
 async function flushEvents() {
   if (flushTimer) {
     clearTimeout(flushTimer);
@@ -115,18 +99,9 @@ async function flushEvents() {
       });
     }
   } catch (e) {
-    // Молча игнорируем ошибки аналитики
     console.debug("[Analytics] Failed to send:", e);
   }
 }
-
-// === PUBLIC API ===
-
-/**
- * Трекинг просмотра страницы
- * @param {string} page - название/путь страницы
- * @param {object} extra - дополнительные данные
- */
 export function trackPageView(page, extra = {}) {
   const referrer = lastPage;
   lastPage = page;
@@ -139,12 +114,6 @@ export function trackPageView(page, extra = {}) {
   });
 }
 
-/**
- * Трекинг клика по кнопке/элементу
- * @param {string} target - ID или название кнопки
- * @param {string} page - текущая страница
- * @param {object} extra - дополнительные данные
- */
 export function trackClick(target, page = null, extra = {}) {
   sendEvent({
     event_type: "button_click",
@@ -154,12 +123,6 @@ export function trackClick(target, page = null, extra = {}) {
   });
 }
 
-/**
- * Трекинг навигации между страницами
- * @param {string} from - откуда
- * @param {string} to - куда
- * @param {object} extra - дополнительные данные
- */
 export function trackNavigation(from, to, extra = {}) {
   sendEvent({
     event_type: "navigation",
@@ -169,10 +132,6 @@ export function trackNavigation(from, to, extra = {}) {
   });
 }
 
-/**
- * Трекинг начала сессии
- * @param {object} extra - дополнительные данные
- */
 export function trackSessionStart(extra = {}) {
   const { tgUserID, tgPlatform } = getTelegramData();
   const tg = window?.Telegram?.WebApp;
@@ -193,13 +152,8 @@ export function trackSessionStart(extra = {}) {
   });
 }
 
-/**
- * Трекинг завершения сессии
- */
 export function trackSessionEnd() {
   const duration = sessionStartTime ? Date.now() - sessionStartTime : 0;
-  
-  // Используем sendBeacon для надёжной отправки при закрытии
   const data = {
     ...getCommonData(),
     event_type: "session_end",
@@ -223,11 +177,6 @@ export function trackSessionEnd() {
   }
 }
 
-/**
- * Трекинг произвольного события
- * @param {string} eventType - тип события
- * @param {object} data - данные события
- */
 export function trackEvent(eventType, data = {}) {
   const { page, target, referrer, extra, ...rest } = data;
   
@@ -240,18 +189,13 @@ export function trackEvent(eventType, data = {}) {
   });
 }
 
-/**
- * Инкрементируем счётчик посещённых страниц
- */
 export function incrementPageCount() {
   const current = parseInt(sessionStorage.getItem("analytics_pages_count") || "0", 10);
   sessionStorage.setItem("analytics_pages_count", String(current + 1));
 }
 
-// Инициализация при загрузке модуля
 initSession();
 
-// Отправляем события при закрытии/уходе со страницы
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", () => {
     flushEvents();
@@ -263,7 +207,6 @@ if (typeof window !== "undefined") {
     trackSessionEnd();
   });
   
-  // Для Telegram WebApp: отслеживаем сворачивание
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
       flushEvents();

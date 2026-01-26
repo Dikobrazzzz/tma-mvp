@@ -1,4 +1,3 @@
-// /opt/tma-mvp/web/app/lucky-winner/src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import TelegramProvider, { AuthCtx } from "./auth/TelegramProvider";
 import RequireAuth from "./components/RequireAuth";
@@ -22,7 +21,6 @@ import { setOnUnauthorized, api } from "./api/client";
 import { I18nextProvider } from "react-i18next";
 import i18n from "./i18n";
 
-// Analytics
 import { usePageTracking } from "./analytics/useAnalytics.jsx";
 
 function GateWrapper({ children }) {
@@ -45,14 +43,12 @@ function AppInner() {
   const [showClaimBonus, setShowClaimBonus] = useState(false);
   const CLAIM_AMOUNT = 500;
 
-  // Автоматический трекинг страниц и сессий
   usePageTracking();
 
   useEffect(() => {
     setOnUnauthorized(() => () => navigate("/login", { replace: true }));
   }, [navigate]);
 
-  // Проверяем should_show_claim_denied при наличии токена
   useEffect(() => {
     if (authLoading || !token) return;
     
@@ -63,7 +59,6 @@ function AppInner() {
           setShowClaimBonus(true);
         }
       } catch (e) {
-        // ignore
       }
     };
     
@@ -160,7 +155,6 @@ function AppInner() {
       <Route path="/error-code" element={<CodeError />} />
       <Route path="/403" element={<Error403 />} />
 
-      {/* NEW: ClaimDenied только для авторизованных, без Layout/BottomNav */}
       <Route
         path="/claim-denied"
         element={
@@ -176,13 +170,10 @@ function AppInner() {
   );
 }
 
-// Обработчик изменения состояния виджета LiveChat
 function handleLiveChatVisibility({ visibility }) {
   if (visibility === 'maximized') {
-    // Чат открыт — полный экран
     document.body.classList.add('livechat-open');
   } else {
-    // Чат закрыт/свёрнут — вернуть навигацию
     document.body.classList.remove('livechat-open');
   }
 }

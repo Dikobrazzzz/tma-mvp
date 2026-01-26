@@ -17,8 +17,6 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// IssueAccessToken — создаёт и подписывает access JWT.
-// TTL берём из ENV JWT_TTL (например, "168h" или "15m"), иначе 7 дней.
 func IssueAccessToken(userID int64) (string, error) {
 	secret := []byte(os.Getenv("JWT_SECRET"))
 	if len(secret) == 0 {
@@ -46,7 +44,6 @@ func IssueAccessToken(userID int64) (string, error) {
 	return t.SignedString(secret)
 }
 
-// AuthRequired — Gin middleware: проверяет Bearer JWT и кладёт user_id в контекст.
 func AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		auth := c.GetHeader("Authorization")
@@ -66,7 +63,6 @@ func AuthRequired() gin.HandlerFunc {
 			return
 		}
 
-		// Доп.проверка exp (jwt.ParseWithClaims это делает, но оставим явно)
 		if claims.ExpiresAt != nil && time.Now().After(claims.ExpiresAt.Time) {
 			log.Printf("Token expired for user %d", claims.UserID)
 			c.AbortWithStatusJSON(401, gin.H{"error": "token expired"})

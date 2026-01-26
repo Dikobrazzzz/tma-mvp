@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Monte-Carlo проверка механики winners (без записи в БД), с параллельным исполнением.
-- Параллельность: --workers (процессы по умолчанию; можно потоки через ENV LW_USE_THREADS=1)
-- Прогресс: каждые LW_PROGRESS_STEP (по умолчанию 25_000) на КАЖДОМ воркере
-- Логика отбора победителей идентична lw_job.py:
-    1) отбор по квотам в группах,
-    2) добор из общего пула ("Any") до TOTAL_WINNERS_PER_DAY,
-    3) расчет наград и проверка суммы.
-"""
 
 import os
 import sys
@@ -24,7 +15,6 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 
 pd.set_option('future.no_silent_downcasting', True)
 
-# Импорт из lw_job (только чтение/функции, записей в БД нет)
 from lw_job import (
     dsn, read_ledger, compute_daily_mu_sigma, classify_group,
     compute_metrics_and_rewards, WINNERS_COUNT
@@ -32,16 +22,13 @@ from lw_job import (
 
 TOTAL_WINNERS_PER_DAY = sum(WINNERS_COUNT.values())
 
-# ------ SQLAlchemy engine per-process ------
 def _sa_dsn():
     d = dsn()
     return "postgresql+psycopg://" + d[len("postgresql://"):] if d.startswith("postgresql://") else d
 
 def _make_engine():
-    # engine создаётся в процессе-воркере
     return sa.create_engine(_sa_dsn())
 
-# ------ Вспомогательные функции выборки ------
 def list_available_days(limit=100000) -> pd.DataFrame:
     sql = sa.text("""
         SELECT date_ts::date AS d, COUNT(*) AS rows, COUNT(DISTINCT email_norm) AS participants
@@ -58,7 +45,6 @@ def list_available_days(limit=100000) -> pd.DataFrame:
     return df
 
 def prep_day_frame(day_str: str) -> pd.DataFrame:
-    """Готовит mid-фрейм с группами (без 'Other') на выбранный день."""
     d_from = datetime.fromisoformat(day_str).replace(tzinfo=timezone.utc)
     d_to   = d_from + pd.Timedelta(days=1)
     df = read_ledger(d_from, d_to)
@@ -74,15 +60,7 @@ def prep_day_frame(day_str: str) -> pd.DataFrame:
     mid = mid[mid["group"] != "Other"].copy()
     return mid
 
-# ------ Отбор победителей: квоты + добор Any (как в lw_job.py) ------
 def sample_once_with_topup(mid: pd.DataFrame, rng: np.random.Generator) -> Tuple[pd.DataFrame, Dict[str, int]]:
-    """
-    Выбор победителей:
-      1) по квотам в каждой группе,
-      2) добор из общего пула (без 'Other') до TOTAL_WINNERS_PER_DAY,
-      3) расчет наград с точной суммой PRIZE (внутри compute_metrics_and_rewards).
-    Возвращает (df_winners, per_group_counts).
-    """
     if mid.empty:
         return pd.DataFrame(), {g: 0 for g in WINNERS_COUNT.keys()}
 
@@ -90,7 +68,6 @@ def sample_once_with_topup(mid: pd.DataFrame, rng: np.random.Generator) -> Tuple
     picked_emails = set()
     per_group_counts = {g: 0 for g in WINNERS_COUNT.keys()}
 
-    # 1) Выбор по квотам
     for gname, grp in mid.groupby("group"):
         if gname not in WINNERS_COUNT:
             continue
@@ -108,7 +85,6 @@ def sample_once_with_topup(mid: pd.DataFrame, rng: np.random.Generator) -> Tuple
         picked_emails |= chosen
         per_group_counts[gname] += picked["email_norm"].nunique()
 
-    # 2) Добор из общего пула до TOTAL_WINNERS_PER_DAY
     already = len(picked_emails)
     need_more = max(0, TOTAL_WINNERS_PER_DAY - already)
     if need_more > 0:
@@ -123,7 +99,6 @@ def sample_once_with_topup(mid: pd.DataFrame, rng: np.random.Generator) -> Tuple
                 extra_emails = set(emails[idx])
                 extra = pool[pool["email_norm"].isin(extra_emails)].copy()
                 parts.append(extra)
-                # учтем распределение добора по группам
                 for gname, grp in extra.groupby("group"):
                     if gname in per_group_counts:
                         per_group_counts[gname] += grp["email_norm"].nunique()
@@ -135,7 +110,6 @@ def sample_once_with_topup(mid: pd.DataFrame, rng: np.random.Generator) -> Tuple
     out = compute_metrics_and_rewards(winners)
     return out, per_group_counts
 
-# ------ Агрегация метрик без хранения всех результатов ------
 def _agg_init(groups) -> Dict:
     return {
         "runs": 0,
@@ -153,18 +127,14 @@ def _agg_init(groups) -> Dict:
 
 def _agg_update(acc: Dict, sr: float, wn: int, neg: bool, gsel: Dict[str, int]):
     acc["runs"] += 1
-    # sum(final_reward)
     if sr < acc["sum_rewards_min"]: acc["sum_rewards_min"] = sr
     if sr > acc["sum_rewards_max"]: acc["sum_rewards_max"] = sr
     acc["sum_rewards_sum"] += sr
-    # winners count
     if wn < acc["winners_min"]: acc["winners_min"] = wn
     if wn > acc["winners_max"]: acc["winners_max"] = wn
     acc["winners_sum"] += wn
-    # negatives
     if neg:
         acc["neg_rewards"] += 1
-    # per-group counts
     for g, v in gsel.items():
         if g not in acc["per_group"]:
             continue
@@ -191,11 +161,9 @@ def _agg_merge(a: Dict, b: Dict) -> Dict:
         out["per_group"][g]["sum"] = a["per_group"][g]["sum"] + b["per_group"][g]["sum"]
     return out
 
-# ------ Worker ------
 def _worker(worker_id: int, runs: int, seed: int, fixed_day: str, progress_step: int) -> Dict:
     try:
         rng = np.random.default_rng(seed)
-        # локальный список доступных дней
         days_df = list_available_days(limit=100000)
         if days_df.empty:
             print(f"[w{worker_id}] [err] нет доступных дат в lw_ledger", flush=True)
@@ -220,7 +188,6 @@ def _worker(worker_id: int, runs: int, seed: int, fixed_day: str, progress_step:
         acc = _agg_init(WINNERS_COUNT.keys())
 
         for i in range(runs):
-            # периодическая смена дня при random режиме
             if not fixed_day and (i % 1000 == 0) and i > 0:
                 current_day = pick_day(i)
                 mid_cache = prep_day_frame(current_day)
@@ -230,7 +197,6 @@ def _worker(worker_id: int, runs: int, seed: int, fixed_day: str, progress_step:
                     mid_cache = prep_day_frame(current_day)
                     tries += 1
                 if mid_cache.empty:
-                    # пропустим итерацию
                     continue
 
             out, gsel = sample_once_with_topup(mid_cache, rng)
@@ -240,7 +206,6 @@ def _worker(worker_id: int, runs: int, seed: int, fixed_day: str, progress_step:
                 sr = float(out["final_reward"].sum())
                 wn = int(out["email_norm"].nunique())
                 neg = bool((out["final_reward"] < 0).any())
-                # ensure all groups present
                 for g in WINNERS_COUNT.keys():
                     if g not in gsel:
                         gsel[g] = 0
@@ -256,7 +221,6 @@ def _worker(worker_id: int, runs: int, seed: int, fixed_day: str, progress_step:
         traceback.print_exc()
         return _agg_init(WINNERS_COUNT.keys())
 
-# ------ Main ------
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=100000, help="общее число прогонов")
@@ -271,12 +235,10 @@ def main():
     workers = max(1, int(args.workers))
     total_runs = int(args.runs)
 
-    # делим total_runs по воркерам
     base = total_runs // workers
     rem = total_runs % workers
     runs_per_worker = [base + (1 if i < rem else 0) for i in range(workers)]
 
-    # разнесем seed'ы
     seeds = [args.seed + i * 9973 for i in range(workers)]
 
     print(f"=== Monte-Carlo PARALLEL ===")
@@ -297,7 +259,6 @@ def main():
         for fut in as_completed(futs):
             results.append(fut.result())
 
-    # агрегируем
     agg = _agg_init(WINNERS_COUNT.keys())
     for r in results:
         agg = _agg_merge(agg, r)

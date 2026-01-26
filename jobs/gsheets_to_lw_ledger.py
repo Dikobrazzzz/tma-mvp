@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Google Sheets → lw_ledger (по умолчанию: вчерашний день UTC)
-Ожидаемые колонки листа (вкладка report):
-User ID | Email | Phone | Date | Country | Ggr | Inout | Turnover | Deposit Amount
-"""
 
 import os, re
 from datetime import datetime, timezone, timedelta
@@ -14,7 +9,6 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
-# --- отдельный env для импорта ---
 load_dotenv(os.getenv("ENVFILE", "/opt/tma-mvp/jobs/.env.import"))
 
 # --- ENV ---
@@ -24,11 +18,9 @@ GSHEET_TAB   = os.getenv("LW_GSHEET_TAB", "report")
 GSHEET_CREDS = os.getenv("LW_GSHEET_CREDS", "/opt/tma-mvp/creds/sa_gsheets.json")
 PG_DSN       = os.getenv("LW_PG_DSN", "postgresql://tma:tma@127.0.0.1:5432/tma")
 SRC_DEFAULT  = os.getenv("LW_SRC_FILE_DEFAULT", f"gsheet:{GSHEET_TAB}")
-LW_FROM      = os.getenv("LW_FROM")  # YYYY-MM-DD (опц.)
-LW_TO        = os.getenv("LW_TO")    # YYYY-MM-DD (опц.)
+LW_FROM      = os.getenv("LW_FROM")
+LW_TO        = os.getenv("LW_TO")
 
-# Список исключаемых стран можно переопределить через ENV:
-# EXCLUDE_COUNTRIES="Kenya,Кения,Nigeria,Нигерия"
 _EXCL_ENV = os.getenv("EXCLUDE_COUNTRIES", "Kenya,Кения")
 EXCLUDE_COUNTRIES = {c.strip().casefold() for c in _EXCL_ENV.split(",") if c.strip()}
 
@@ -43,34 +35,23 @@ def _norm_email(x):
     return x or None
 
 def _parse_num(x):
-    """
-    Robust parser for localized numbers:
-    - нормализует юникод-минус (U+2212) в '-'
-    - убирает любые пробелы, NBSP (U+00A0) и узкий NBSP (U+202F)
-    - вычищает всё, кроме цифр, минуса, точки и запятой
-    - корректно обрабатывает '1.234,56', '1,234.56', '-4,54' и т.п.
-    """
     if x is None:
         return None
     s = str(x).strip()
     if s == "":
         return None
 
-    s = s.replace("\u2212", "-")                    # U+2212 → '-'
-    s = re.sub(r"[\s\u00A0\u202F]", "", s)          # удалить все пробелы/NBSP
-    s = re.sub(r"[^0-9\-\.,]", "", s)               # оставить цифры, -, . ,
+    s = s.replace("\u2212", "-")
+    s = re.sub(r"[\s\u00A0\u202F]", "", s)
+    s = re.sub(r"[^0-9\-\.,]", "", s)
 
     if s.count(",") == 1 and s.count(".") == 0:
-        # 12,34 -> 12.34
         s = s.replace(",", ".")
     elif s.count(".") == 1 and s.count(",") >= 1:
-        # 1,234.56 -> 1234.56
         s = s.replace(",", "")
     elif s.count(",") > 1 and s.count(".") == 0:
-        # 1,234,56 -> 1234.56
         parts = s.split(","); s = "".join(parts[:-1]) + "." + parts[-1]
     elif s.count(".") > 1 and s.count(",") == 0:
-        # 1.234.56 -> 1234.56
         parts = s.split("."); s = "".join(parts[:-1]) + "." + parts[-1]
 
     try:
@@ -124,7 +105,6 @@ def read_sheet() -> pd.DataFrame:
     if miss:
         _err(f"В листе нет обязательных колонок: {miss}. Есть: {list(df.columns)}")
 
-    # Маппинг и нормализация
     df["user_id"]        = df["User ID"].map(lambda x: int(float(x)) if str(x).strip()!="" else 0)
     df["email_norm"]     = df["Email"].map(_norm_email)
     df["date_ts"]        = df["Date"].map(_parse_dt_utc)
@@ -135,12 +115,10 @@ def read_sheet() -> pd.DataFrame:
     df["deposit_amount"] = df["Deposit Amount"].map(_parse_num)
     df["src_file"]       = SRC_DEFAULT
 
-    # Обязательные поля
     df = df[(df["user_id"].notna()) & (df["user_id"]!=0) &
             (df["email_norm"].notna()) & (df["date_ts"].notna())]
     print(f"[map] rows_after_required={len(df)}")
 
-    # --- 1) Диапазон дат (сначала!) ---
     if LW_FROM or LW_TO:
         if LW_FROM:
             start = datetime.fromisoformat(LW_FROM).replace(tzinfo=timezone.utc)
@@ -155,7 +133,6 @@ def read_sheet() -> pd.DataFrame:
     print(f"[range] rows_after_date={len(df)} "
           f"(from={LW_FROM or start.date()} to<{LW_TO or end.date()})")
 
-    # --- 2) Фильтр стран (если задан EXCLUDE_COUNTRIES) ---
     before_rows = len(df)
     if EXCLUDE_COUNTRIES:
         mask_keep = ~df["country"].fillna("").map(lambda s: s.casefold()).isin(EXCLUDE_COUNTRIES)
@@ -165,7 +142,6 @@ def read_sheet() -> pd.DataFrame:
             print(f"[country] dropped_by_country={dropped} (excluded={sorted(EXCLUDE_COUNTRIES)})")
     print(f"[country] rows_after_country={len(df)}")
 
-    # --- 3) Fallback ggr<-inout (только внутри выбранного диапазона) ---
     if LW_FALLBACK_METRIC == "inout":
         mask = (df["ggr"].isna()) | (df["ggr"] == 0)
         replaced = int((mask & df["inout"].notna()).sum())
@@ -194,7 +170,7 @@ def ensure_unique(conn):
         conn.commit()
         print("[schema] created UNIQUE (user_id, date_ts)")
     except Exception:
-        conn.rollback()  # уже есть/нет прав — ок
+        conn.rollback()
 
 def upsert_on_conflict(conn, df: pd.DataFrame):
     sql = """
@@ -216,10 +192,6 @@ def upsert_on_conflict(conn, df: pd.DataFrame):
         cur.executemany(sql, rows)
 
 def upsert_fallback(conn, df: pd.DataFrame):
-    """
-    Без UNIQUE: делаем DELETE по ключам, затем массовый INSERT.
-    Это немного медленнее, но просто и надёжно.
-    """
     rows = [tuple(r) for r in df.itertuples(index=False, name=None)]
     with conn.cursor() as cur:
         BATCH = 1000

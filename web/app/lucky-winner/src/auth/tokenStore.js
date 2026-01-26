@@ -1,12 +1,10 @@
 // src/auth/tokenStore.js
-// Универсальное хранилище токена: Telegram CloudStorage (если доступен) + fallback в localStorage
 const isTMA = () => !!window.Telegram?.WebApp;
 const cs = () => window.Telegram?.WebApp?.CloudStorage;
 
 const KEY_JWT = "jwt";
 const KEY_AUTOLOGIN_DISABLED = "autologin_disabled";
 
-// безопасный atob для JWT payload (безопасно для URL-safe base64)
 function b64urlDecode(str) {
   try {
     const pad = "=".repeat((4 - (str.length % 4)) % 4);
@@ -47,17 +45,14 @@ export async function setToken(token) {
 export async function clearToken() {
   try { if (isTMA() && cs()) await new Promise((r) => cs().removeItem("jwt", () => r())); } catch {}
   try { localStorage.removeItem("jwt"); } catch {}
-  // ⚠️ Эта перезагрузка мешает поставить флаг при logout:
   try { if (isTMA()) window.Telegram.WebApp.reload(); } catch {}
 }
 
-// 👉 Новый вариант без reload — используем в Logout
 export async function clearTokenNoReload() {
   try { if (isTMA() && cs()) await new Promise((r) => cs().removeItem("jwt", () => r())); } catch {}
   try { localStorage.removeItem("jwt"); } catch {}
 }
 
-// быстрая клиентская проверка exp (для UX, не для безопасности)
 export function isExpired(jwt) {
   if (!jwt) return true;
   const parts = jwt.split(".");
@@ -72,7 +67,6 @@ export function isExpired(jwt) {
   }
 }
 
-// ===== Флаг: запретить автологин по initData (используем для Logout) =====
 export async function setAutoLoginDisabled(disabled) {
   const v = disabled ? "1" : "";
   if (isTMA() && cs()) await csSet(KEY_AUTOLOGIN_DISABLED, v);

@@ -1,4 +1,3 @@
-// src/pages/ClaimDenied.jsx
 import { useNavigate } from "react-router-dom";
 import wall from "../assets/Wall.svg";
 import trophyOops from "../assets/Trophy_Claim_Oops.svg";
@@ -24,7 +23,6 @@ export default function ClaimDenied() {
       <img src={logo} alt="Logo" className="absolute top-4 left-1/2 transform -translate-x-1/2 h-5" />
 
       <div className="relative flex-1 flex flex-col items-center justify-center mt-20">
-        {/* ↑ поднял на 15%: -translate-y-[75%] */}
         <img
           src={trophyOops}
           alt="Trophy Oops"

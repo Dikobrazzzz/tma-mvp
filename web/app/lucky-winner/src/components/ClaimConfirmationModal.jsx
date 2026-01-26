@@ -1,19 +1,15 @@
-// src/components/ClaimConfirmationModal.jsx
 import React, { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
 export default function ClaimConfirmationModal({ open, onOK }) {
   const { t } = useTranslation();
 
-  // Делаем модалку «полуконтролируемой»: синхронизируемся с prop open,
-  // но закрываемся локально при клике, чтобы гарантированно исчезала.
   const [visible, setVisible] = useState(Boolean(open));
 
   useEffect(() => {
     setVisible(Boolean(open));
   }, [open]);
 
-  // Блокируем скролл фона только когда модалка видима
   useEffect(() => {
     if (visible) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
@@ -22,7 +18,6 @@ export default function ClaimConfirmationModal({ open, onOK }) {
     };
   }, [visible]);
 
-  // Закрытие по ESC
   useEffect(() => {
     if (!visible) return;
     const onKey = (e) => {
@@ -36,15 +31,11 @@ export default function ClaimConfirmationModal({ open, onOK }) {
   }, [visible, onOK]);
 
   const handleOK = useCallback(() => {
-    // Сначала локально закрываем модалку
     setVisible(false);
-    // Затем уведомляем родителя (если он есть)
     try {
       const maybe = onOK && onOK();
-      // Если родитель вернул промис — не ждём его для закрытия
       void maybe;
     } catch {
-      // Ничего, модалка уже закрыта локально
     }
   }, [onOK]);
 
@@ -56,7 +47,6 @@ export default function ClaimConfirmationModal({ open, onOK }) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="claim-confirmation-title"
-      // Клик по фону — тоже закрывает
       onClick={handleOK}
     >
       <div
@@ -69,7 +59,6 @@ export default function ClaimConfirmationModal({ open, onOK }) {
           boxShadow:
             "0 6px 12px rgba(0,0,0,0.22), 0 22px 44px rgba(0,0,0,0.18)",
         }}
-        // Останавливаем всплытие, чтобы клик внутри карточки не закрывал модалку случайно
         onClick={(e) => e.stopPropagation()}
       >
         <h3 id="claim-confirmation-title" className="text-lg font-extrabold mb-2">
@@ -98,4 +87,3 @@ export default function ClaimConfirmationModal({ open, onOK }) {
     </div>
   );
 }
-

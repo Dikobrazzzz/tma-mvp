@@ -1,6 +1,3 @@
-// src/components/ProgressBar.jsx
-// Адаптивная шкала: серый трек, красная линия прогресса, справа — текущая сумма.
-// API: <ProgressBar value={0..1} amount={500} currency="€" />
 export default function ProgressBar({ value = 0, amount = 0, currency = "€" }) {
   const pct = Math.max(0, Math.min(1, Number(value) || 0)) * 100;
   const formattedAmount =
@@ -22,7 +19,6 @@ export default function ProgressBar({ value = 0, amount = 0, currency = "€" })
           "0 32px 60px rgba(0,0,0,0.14)",
       }}
     >
-      {/* Прогресс-бар слева (серый трек + красная линия) */}
       <div
         className="flex-1 h-4 rounded-full overflow-hidden"
         style={{ backgroundColor: "#3A3A3A" }}
@@ -42,7 +38,6 @@ export default function ProgressBar({ value = 0, amount = 0, currency = "€" })
         />
       </div>
 
-      {/* Сумма справа: € — жёлтый, число — белый */}
       <div className="flex items-baseline gap-1 shrink-0">
         <span className="text-[#fffe45] font-bold text-sm">{currency}</span>
         <span className="text-white font-semibold text-sm">

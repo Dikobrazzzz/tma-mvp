@@ -1,5 +1,3 @@
-//opt/tma-mvp/web/app/lucky-winner/src/components/BottomNav.jsx
-// src/components/BottomNav.jsx
 import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from 'react-i18next';
 import lucky from "../assets/Lucky.svg";
@@ -52,14 +50,11 @@ export default function BottomNav() {
       data-bottom-nav
       className="fixed bottom-0 left-0 right-0 bg-[#1a1a1a]/95 border-t border-white/10 flex justify-around items-center h-20 z-[300] rounded-t-[20px]"
     >
-      {/* Terms */}
       <NavLink to="/home" className="flex flex-col items-center py-2 ml-2" aria-current={isTermsActive ? "page" : undefined}>
         <img src={isTermsActive ? termsY : terms} alt="Terms" className={`${iconCls(isTermsActive, "terms")} scale-90`} />
         <TwoLineLabel active={isTermsActive} line1={t('terms')} line2Hidden />
       </NavLink>
-      {/* Центр: Lucky + CTA + Profile */}
       <div className="flex items-center gap-4">
-        {/* Lucky (с подъёмом) */}
         <NavLink to="/" className="flex flex-col items-center py-2" aria-current={isLuckyActive ? "page" : undefined}>
           <img
             src={isLuckyActive ? luckyY : lucky}
@@ -72,7 +67,6 @@ export default function BottomNav() {
             extra={LIFT.text}
           />
         </NavLink>
-        {/* CTA — обычная ссылка; без рамок/фонов/квадратов */}
         <a
           href={SITE_URL}
           target="_blank"
@@ -89,13 +83,11 @@ export default function BottomNav() {
             draggable="false"
           />
         </a>
-        {/* Profile */}
         <NavLink to="/profile" className="flex flex-col items-center py-2" aria-current={isProfileActive ? "page" : undefined}>
           <img src={isProfileActive ? profileY : icProfile} alt="Profile" className={iconCls(isProfileActive, "profile")} />
           <TwoLineLabel active={isProfileActive} line1={t('profile')} line2Hidden />
         </NavLink>
       </div>
-      {/* Winners */}
       <NavLink to="/winners" className="flex flex-col items-center py-2 mr-2" aria-current={isWinnersActive ? "page" : undefined}>
         <img src={isWinnersActive ? winnersY : icWinners} alt="Winners" className={iconCls(isWinnersActive, "winners")} />
         <TwoLineLabel active={isWinnersActive} line1={t('winners')} line2Hidden />

@@ -1,4 +1,3 @@
-// src/pages/Profile.jsx
 import {
   useEffect,
   useState,
@@ -17,7 +16,6 @@ import setting from "../assets/setting.svg";
 import wincub from "../assets/wincub.svg";
 import Header from "../components/Header";
 
-// Analytics
 import { trackClick } from "../analytics/analytics";
 
 export default function Profile() {
@@ -80,8 +78,11 @@ export default function Profile() {
   const totalWins = wins.length;
 
   return (
-    <div className="min-h-screen bg-[#151515] text-white flex flex-col">
-      {/* HERO — Wall.svg как фон */}
+    <div className="min-h-screen bg-[#151515] text-white flex flex-col relative">
+      <div className="absolute inset-x-0 top-0 z-[400]">
+        <Header />
+      </div>
+
       <div className="relative flex-shrink-0 overflow-hidden">
         <img
           src={wall}
@@ -95,15 +96,9 @@ export default function Profile() {
             transform: "translateY(-160px)",
           }}
         />
-
-        <div className="absolute inset-x-0 top-0 z-10">
-          <Header />
-        </div>
       </div>
 
-      {/* КОНТЕНТ — общий -mt-[420px] */}
       <div className="-mt-[420px] relative z-10">
-        {/* Заголовок */}
         <div className="px-4 pt-4 pb-2">
           <h1 className="text-3xl font-bold text-white flex items-center gap-2">
             <img src={icProfile} alt="" className="h-9 w-9" />
@@ -111,9 +106,7 @@ export default function Profile() {
           </h1>
         </div>
 
-        {/* Основной контент — чуть ниже */}
         <div className="mt-16 md:mt-20">
-          {/* User ID + Settings */}
           <div className="pt-2 pb-4">
             <div className="w-[90%] mx-auto px-4">
               <div className="flex items-center justify-between">
@@ -137,7 +130,6 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* Таблица выигрышей */}
           <div className="pb-4">
             <div
               className="w-[90%] mx-auto rounded-3xl overflow-hidden"
@@ -224,7 +216,6 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* Support */}
           <div className="pb-2 mt-2 flex flex-col justify-center items-center">
             <button
               className="w-[90%] rounded-3xl py-3 px-4 font-semibold relative"

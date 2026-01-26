@@ -48,7 +48,6 @@ claimed_at timestamptz not null default now(),
 tx_ref text
 );
 
--- seed example winnings (for UI demo)
 insert into users(tg_id) values (111111) on conflict do nothing;
 insert into winnings(user_id, amount_cents, won_at, status)
 select id, 120000, now(), 'waiting' from users where tg_id=111111;

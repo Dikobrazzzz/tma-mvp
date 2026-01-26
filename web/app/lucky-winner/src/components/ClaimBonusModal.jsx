@@ -1,4 +1,3 @@
-// src/components/ClaimBonusModal.jsx
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -23,7 +22,6 @@ export default function ClaimBonusModal({ open, amount = 500, onConfirm }) {
       aria-labelledby="claim-title"
     >
       <div className="relative w-[90%] max-w-md rounded-3xl overflow-hidden h-[70vh]">
-        {/* Фон модалки: responsive picture (из public/claim) */}
         <picture>
           <source
             type="image/avif"
@@ -48,7 +46,6 @@ export default function ClaimBonusModal({ open, amount = 500, onConfirm }) {
           />
         </picture>
 
-        {/* Трофей */}
         <picture>
           <source
             type="image/avif"
@@ -72,7 +69,6 @@ export default function ClaimBonusModal({ open, amount = 500, onConfirm }) {
           />
         </picture>
 
-        {/* Текст и сумма */}
         <div
           id="claim-title"
           className="absolute top-[70%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center text-white font-bold text-xl"
@@ -82,7 +78,6 @@ export default function ClaimBonusModal({ open, amount = 500, onConfirm }) {
           <span className="text-[#fffe45] text-6xl">€{amount}</span>
         </div>
 
-        {/* Кнопка */}
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[90%] grid grid-cols-1 gap-2">
           <button
             onClick={onConfirm}

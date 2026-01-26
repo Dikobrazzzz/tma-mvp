@@ -54,7 +54,7 @@ func IssueRefreshToken(userID int64) (string, time.Time, error) {
 		return "", time.Time{}, fmt.Errorf("JWT_SECRET is not set")
 	}
 
-	ttl := 30 * 24 * time.Hour // 30 дней по умолчанию
+	ttl := 30 * 24 * time.Hour
 	if v := os.Getenv("JWT_REFRESH_TTL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			ttl = d
@@ -126,7 +126,6 @@ func cookieDomain() string {
 	if v := os.Getenv("COOKIE_DOMAIN"); v != "" {
 		return v
 	}
-	// по умолчанию — пусто (текущий хост)
 	return ""
 }
 
@@ -139,7 +138,7 @@ func setRefreshCookie(c *gin.Context, token string, exp time.Time) {
 		Expires:  exp,
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteLaxMode, // если нужен кросс-сабдомен/iframe — поставь SameSite=None
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 
@@ -157,7 +156,6 @@ func clearRefreshCookie(c *gin.Context) {
 }
 
 // ===== /api/auth/refresh =====
-// Берёт refresh из HttpOnly cookie и выдаёт новый access (и ротирует refresh).
 
 func (s *Server) Refresh(c *gin.Context) {
 	rt, err := c.Request.Cookie("rt")
@@ -173,7 +171,6 @@ func (s *Server) Refresh(c *gin.Context) {
 		return
 	}
 
-	// Выдаём новый access и ротируем refresh
 	access, err := IssueAccessToken(claims.UserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "issue access"})
@@ -189,6 +186,6 @@ func (s *Server) Refresh(c *gin.Context) {
 }
 
 func (s *Server) Logout(c *gin.Context) {
-    clearRefreshCookie(c)         // уже есть helper
+    clearRefreshCookie(c)
     c.JSON(200, gin.H{"ok": true})
 }

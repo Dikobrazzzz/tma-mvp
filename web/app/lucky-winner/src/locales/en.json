@@ -15,7 +15,8 @@
   "top10Win": "Top 10 Win",
   "number": "N°",
   "userId": "User ID",
-  "totalWinsCount": "Total Wins Count",
+  "totalWinsCount": "Total wins count",
+  "winsAmount": "Wins amount",
   "totalWins": "Total Wins €",
   "profile": "Profile",
   "myWinnings": "My Winnings",
@@ -52,5 +53,12 @@
   "ok": "OK",
   "nextDrawStartsInTitle": "Next draw starts in",
   "hourShort": "h",
-  "minuteShort": "m"
+  "minuteShort": "m",
+  "claimed": "Claimed",
+  "yes": "Yes",
+  "no": "No",
+  "noData": "No data",
+  "emailNotFoundTitle": "We couldn't find this email",
+  "emailNotFoundText": "If you registered recently, please try again later.",
+  "needSupport": "Need personalized support?"
 }

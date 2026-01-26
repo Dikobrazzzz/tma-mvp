@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# env с ID/табом/кредами
 [ -f /opt/tma-mvp/jobs/.env ] && . /opt/tma-mvp/jobs/.env
 
 exec /opt/tma-mvp/.venv/bin/python - <<'PY'
 import os, sys
-# чтобы импортировался /opt/tma-mvp/jobs/gsheets_export.py
 sys.path.insert(0, "/opt/tma-mvp/jobs")
 
 from gsheets_export import winners_df_yesterday, upload_dataframe

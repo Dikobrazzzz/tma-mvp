@@ -19,11 +19,8 @@ import (
 
 type TGUser struct {
 	ID int64 `json:"id"`
-	// добавь при необходимости: FirstName string `json:"first_name"`, Username string `json:"username"`, ...
 }
 
-// POST /api/auth/tg-init
-// Тихий логин по Telegram WebApp initData. На вход принимает RAW-строку initData.
 func (s *Server) TgInitLogin(c *gin.Context) {
 	var req struct {
 		InitData string `json:"init_data" binding:"required"`
@@ -45,7 +42,6 @@ func (s *Server) TgInitLogin(c *gin.Context) {
 		return
 	}
 
-	// Найти/создать пользователя по tg_id
 	var userID int64
 	err = s.DB.QueryRow(c, `SELECT id FROM users WHERE tg_id=$1`, tgUser.ID).Scan(&userID)
 	if err != nil {
@@ -59,7 +55,6 @@ func (s *Server) TgInitLogin(c *gin.Context) {
 		}
 	}
 
-	// Выдаём токены (reuse уже существующих функций)
 	access, err := IssueAccessToken(userID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "issue access"})
@@ -75,15 +70,12 @@ func (s *Server) TgInitLogin(c *gin.Context) {
 	c.JSON(200, gin.H{"token": access})
 }
 
-// ValidateInitData проверяет подпись Telegram initData и свежесть auth_date, возвращает TGUser.
 func ValidateInitData(initData, botToken string) (TGUser, error) {
-	// 1) распарсить строку query
 	vals, err := url.ParseQuery(initData)
 	if err != nil {
 		return TGUser{}, fmt.Errorf("parse initData: %w", err)
 	}
 
-	// 2) достать hash и auth_date
 	hash := vals.Get("hash")
 	if hash == "" {
 		return TGUser{}, fmt.Errorf("no hash")
@@ -91,7 +83,6 @@ func ValidateInitData(initData, botToken string) (TGUser, error) {
 	vals.Del("hash")
 	authDate := vals.Get("auth_date")
 
-	// 3) сформировать data-check-string (sorted key=value\n)
 	keys := make([]string, 0, len(vals))
 	for k := range vals {
 		keys = append(keys, k)
@@ -109,18 +100,15 @@ func ValidateInitData(initData, botToken string) (TGUser, error) {
 	}
 	dcs := b.String()
 
-	// 4) ключ = sha256(bot_token); HMAC_SHA256(data-check-string)
 	secret := sha256.Sum256([]byte(botToken))
 	mac := hmac.New(sha256.New, secret[:])
 	mac.Write([]byte(dcs))
 	sumHex := hex.EncodeToString(mac.Sum(nil))
 
-	// 5) сравнить подписи
 	if !hmac.Equal([]byte(strings.ToLower(hash)), []byte(strings.ToLower(sumHex))) {
 		return TGUser{}, fmt.Errorf("bad hash")
 	}
 
-	// 6) проверить свежесть auth_date (например, 5 минут)
 	if authDate != "" {
 		sec, err := strconv.ParseInt(authDate, 10, 64)
 		if err == nil && sec > 0 {
@@ -130,7 +118,6 @@ func ValidateInitData(initData, botToken string) (TGUser, error) {
 		}
 	}
 
-	// 7) вытащить user из поля "user" (JSON)
 	var u TGUser
 	uStr := vals.Get("user")
 	if uStr == "" {

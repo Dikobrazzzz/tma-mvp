@@ -1,4 +1,3 @@
-// src/pages/Home.jsx
 import { useTranslation } from "react-i18next";
 
 import Header from "../components/Header";
@@ -14,8 +13,11 @@ export default function Home() {
     .filter(Boolean);
 
   return (
-    <div className="min-h-screen bg-[#151515] text-white flex flex-col">
-      {/* HERO — Wall.svg как фон, поднятый вверх (как на Winners) */}
+    <div className="min-h-screen bg-[#151515] text-white flex flex-col relative">
+      <div className="absolute inset-x-0 top-0 z-[400]">
+        <Header />
+      </div>
+
       <div className="relative flex-shrink-0 overflow-hidden">
         <img
           src={wall}
@@ -29,15 +31,9 @@ export default function Home() {
             transform: "translateY(-160px)",
           }}
         />
-
-        <div className="absolute inset-x-0 top-0 z-10">
-          <Header />
-        </div>
       </div>
 
-      {/* КОНТЕНТ — заезжает на фон по той же схеме, что и Winners (-mt-[420px]) */}
       <div className="-mt-[420px] relative z-10">
-        {/* Title */}
         <div className="px-4 pt-4 pb-2">
           <h1 className="text-3xl font-bold text-white flex items-center gap-2">
             <img src={icTerms} alt="" className="h-9 w-9" />
@@ -45,9 +41,7 @@ export default function Home() {
           </h1>
         </div>
 
-        {/* Остальной контент */}
         <div className="flex-1 px-4 space-y-4 overflow-y-auto pt-4 pb-6 mt-6">
-          {/* Win up to €5000 */}
           <div className="py-4">
             <div className="flex items-baseline gap-2 text-3xl font-bold tracking-tight text-left">
               <span className="text-sm">{t("winUpTo")}</span>
@@ -55,9 +49,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Steps */}
           <div className="space-y-1.5 max-w-[90%] mx-auto">
-            {/* 1 */}
             <div
               className="relative rounded-2xl p-1.5 flex items-center gap-3 text-white"
               style={{
@@ -79,7 +71,6 @@ export default function Home() {
               </span>
             </div>
 
-            {/* 2 */}
             <div
               className="relative rounded-2xl p-1.5 flex items-center gap-3 text-white"
               style={{
@@ -99,7 +90,6 @@ export default function Home() {
               <span className="flex-1 text-sm">{t("placeFirstBet")}</span>
             </div>
 
-            {/* 3 */}
             <div
               className="relative rounded-2xl p-1.5 flex items-center gap-3 text-white"
               style={{
@@ -120,7 +110,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Terms and Conditions */}
           <div className="space-y-3 mt-6">
             <h3 className="text-lg font-semibold text-white">{t("text")}</h3>
             <div className="text-xs leading-relaxed text-[#7D7D7D] space-y-3">

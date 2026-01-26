@@ -5,14 +5,12 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-# Если меняете scopes, удалите token.json.
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 CREDS_FILE = "/opt/tma-mvp/credentials.json"
 TOKEN_FILE = "/opt/tma-mvp/token.json"
 
 def main():
-    """Создаёт новую таблицу и записывает в неё пример данных."""
     creds = None
     if os.path.exists(TOKEN_FILE):
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
@@ -23,7 +21,7 @@ def main():
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
                 CREDS_FILE, SCOPES)
-            creds = flow.run_console()  # Консольный ввод для headless-окружения
+            creds = flow.run_console()
 
         with open(TOKEN_FILE, "w") as token:
             token.write(creds.to_json())
@@ -31,7 +29,6 @@ def main():
     try:
         service = build("sheets", "v4", credentials=creds)
 
-        # Создание новой таблицы
         spreadsheet = {
             "properties": {
                 "title": "Test Spreadsheet"
@@ -43,7 +40,6 @@ def main():
         spreadsheet_id = spreadsheet.get("spreadsheetId")
         print(f"Spreadsheet ID: {spreadsheet_id}")
 
-        # Запись примерных данных
         values = [
             ["Item", "Cost", "Stocked", "Ship Date"],
             ["Wheel", "$20.50", "4", "3/1/2016"],

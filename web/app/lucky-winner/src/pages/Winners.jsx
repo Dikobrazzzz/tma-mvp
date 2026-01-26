@@ -1,4 +1,3 @@
-// src/pages/Winners.jsx
 import { useState, useEffect, useContext } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -125,7 +124,6 @@ export default function Winners() {
     return () => {
       cancelled = true;
     };
-    // 👇 ВАЖНО: без token, чтобы эффект не триггерился каждую секунду
   }, [tab]);
 
   if (loading) {
@@ -137,8 +135,11 @@ export default function Winners() {
   }
 
   return (
-    <div className="min-h-screen bg-[#151515] text-white flex flex-col">
-      {/* HERO — Wall.svg как фон, аналогично Home */}
+    <div className="min-h-screen bg-[#151515] text-white flex flex-col relative">
+      <div className="absolute inset-x-0 top-0 z-[400]">
+        <Header />
+      </div>
+
       <div className="relative flex-shrink-0 overflow-hidden">
         <img
           src={wall}
@@ -152,15 +153,9 @@ export default function Winners() {
             transform: "translateY(-160px)",
           }}
         />
-
-        <div className="absolute inset-x-0 top-0 z-10">
-          <Header />
-        </div>
       </div>
 
-      {/* КОНТЕНТ — заезжает на фон */}
       <div className="-mt-[420px] relative z-10">
-        {/* Заголовок — оставляем на своём месте */}
         <div className="px-4 pt-4 pb-2">
           <h1 className="text-3xl font-bold text-white flex items-center gap-2">
             <img src={icWinners} alt="" className="h-9 w-9" />
@@ -168,9 +163,7 @@ export default function Winners() {
           </h1>
         </div>
 
-        {/* Остальной контент — ОПУЩЕН НИЖЕ */}
         <div className="mt-10 md:mt-12 flex flex-col items-center px-4 pb-6">
-          {/* Табы */}
           <div className="flex gap-2 flex-wrap justify-center mb-4">
             {Object.entries(tabs).map(([key, label]) => (
               <Tab key={key} active={tab === key} onClick={() => setTab(key)}>
@@ -179,7 +172,6 @@ export default function Winners() {
             ))}
           </div>
 
-          {/* Таблица */}
           <div
             className="w-full max-w-[90%] mx-auto rounded-3xl overflow-hidden shadow-lg"
             style={{
@@ -199,12 +191,10 @@ export default function Winners() {
                       {t("userId")}
                     </th>
                     <th className="py-2 text-center text-[10px] leading-tight">
-                      <span className="block">Total wins</span>
-                      <span className="block">count</span>
+                      {t("totalWinsCount", "Total wins count")}
                     </th>
                     <th className="py-2 text-center text-[10px] leading-tight">
-                      <span className="block">Wins</span>
-                      <span className="block">amount</span>
+                      {t("winsAmount", "Wins amount")}
                     </th>
                     <th className="py-2 text-center text-[10px]">
                       {t("claimed", "Claimed")}

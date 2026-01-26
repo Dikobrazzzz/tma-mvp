@@ -15,7 +15,6 @@ except Exception:
 import psycopg
 import sqlalchemy as sa
 
-# ----- Параметры механики -----
 PRIZE = float(os.getenv("LW_PRIZE", "500"))
 TAIL_Q = float(os.getenv("LW_TAIL_Q", "0.025"))
 VIP_DEFAULT = int(os.getenv("LW_VIP_DEFAULT", "3"))
@@ -45,18 +44,14 @@ MAX_CONSEC_WINS = int(os.getenv("LW_MAX_CONSEC", "4"))
 MIN_CHANCE = float(os.getenv("LW_MIN_CHANCE", "0.0"))
 MAX_CHANCE = float(os.getenv("LW_MAX_CHANCE", "0.1"))
 
-# Фильтр входящих строк
 GGR_MIN_ABS = float(os.getenv("LW_GGR_MIN_ABS", "1.0"))
 REQUIRE_TURNOVER_POS = os.getenv("LW_REQUIRE_TURNOVER_POS", "0") == "1"
 
-# VIP-гейтинг для Group 4 (не используется в «оригинале», см. классификацию)
 REQ_VIP_G4 = os.getenv("LW_REQUIRE_VIP_G4", "0") == "1"
 VIP_G4_MIN = int(os.getenv("LW_VIP_G4_MIN", "2"))
 
-# Добор из отрицательных групп
 TOPUP_INCLUDE_NEG = os.getenv("LW_TOPUP_INCLUDE_NEG", "0") == "1"
 
-# ----- Подключение к БД -----
 def dsn() -> str:
     return os.getenv("LW_PG_DSN", "postgresql://tma:tma@127.0.0.1:5432/tma")
 
@@ -68,7 +63,6 @@ def _sa_dsn() -> str:
 
 ENGINE = sa.create_engine(_sa_dsn())
 
-# ----- Утиль -----
 def utc_day_bounds(day: date):
     start = datetime.combine(day, datetime.min.time()).replace(tzinfo=timezone.utc)
     return start, start + timedelta(days=1)
@@ -97,7 +91,6 @@ def read_ledger(d_from: datetime, d_to: datetime) -> pd.DataFrame:
     if df.empty:
         return df
 
-    # VIP заглушка (если задана): ставим всем одинаковый VIP
     if FORCE_VIP_LEVEL is not None:
         try:
             forced = int(FORCE_VIP_LEVEL)
@@ -121,7 +114,6 @@ def read_ledger(d_from: datetime, d_to: datetime) -> pd.DataFrame:
         inplace=True,
     )
 
-    # Фильтры
     df = df[df["GGR"].abs() >= GGR_MIN_ABS]
     if REQUIRE_TURNOVER_POS:
         df = df[df["turnover"].fillna(0) > 0]
@@ -185,7 +177,7 @@ def weighted_choice(emails, k, prev_winners: set, consec: dict, group_name: str)
         s = consec.get(e, 0)
         base = 1.0
         if s >= 1:
-            base *= 1.0 / (1 + 0.7 * s)  # чем длиннее серия, тем меньше шанс
+            base *= 1.0 / (1 + 0.7 * s)
         base += np.random.uniform(MIN_CHANCE, MAX_CHANCE)
         w.append(base)
     w = np.array(w, dtype=float)
@@ -250,7 +242,6 @@ def compute_metrics_and_rewards(df_day: pd.DataFrame) -> pd.DataFrame:
     if total_adj > 0:
         raw = PRIZE * out["adj_reward"] / total_adj
     else:
-        # все метрики нулевые (например, все GGR=0) — делим приз поровну
         n = len(out)
         raw = np.full(n, PRIZE / n if n > 0 else 0.0, dtype=float)
 
@@ -259,11 +250,6 @@ def compute_metrics_and_rewards(df_day: pd.DataFrame) -> pd.DataFrame:
     return out
 
 def _key(row):
-    """
-    Ключ уникальности участника в выборке.
-    Используем (email_norm, user_id) если оба есть, иначе только email_norm.
-    Ожидается, что row — dict/obj с полями 'email_norm' и 'user_id'.
-    """
     if isinstance(row, dict):
         e = (row.get("email_norm") or "")
         u = row.get("AccountID")
@@ -277,14 +263,6 @@ def _key(row):
     return (e, u)
 
 def top_up_after_quota(picked_rows, group1_rows, group2_rows, group3_rows, group4_rows, target_count, include_neg=False):
-    """
-    Добрать победителей до target_count.
-    - picked_rows: уже выбранные победители (list[dict|obj])
-    - groupX_rows: кандидаты по группам (list[dict|obj])
-    - target_count: желаемое итоговое количество победителей (int)
-    - include_neg: если True — разрешить добор из G3/G4
-    Возвращает: (new_picked_rows, picked_more_list, pool_size)
-    """
     already = {_key(r) for r in picked_rows}
 
     pool = []
@@ -339,9 +317,6 @@ def main():
     all_day_winners = []
     for day in sorted(df["Date"].unique()):
         df_day = df[df["Date"] == day].copy()
-
-        # 0) Жёстко исключим GGR == 0
-        #df_day = df_day[df_day["GGR"] != 0]
         if not INCLUDE_ZERO_GGR:
             df_day = df_day[df_day["GGR"] != 0]
         if df_day.empty:
@@ -352,7 +327,6 @@ def main():
             print(f"[{day}] skipped: all users have GGR = 0")
             continue
 
-        # 0.1) Квантильные хвосты и порог «сверхверхних»
         q_low = float(np.quantile(df_day["GGR"], TAIL_Q))
         q_high = float(np.quantile(df_day["GGR"], 1 - TAIL_Q))
         df_day["lower"] = (df_day["GGR"] < q_low).astype(int)
@@ -366,13 +340,11 @@ def main():
         OUTLIER_STD_MULT = float(os.getenv("LW_OUTLIER_STD_MULT", "2.0"))
         outliers_border = outliers_mean + outliers_std * OUTLIER_STD_MULT
 
-        # 0.2) Отрезаем только сверхверхние
         df_day = df_day[df_day["GGR"] < outliers_border].copy()
         if df_day.empty:
             print(f"[{day}] skipped after border cut: GGR < {outliers_border:.2f} → 0 rows")
             continue
 
-        # 1) «Оригинальная» классификация (mean + lower; VIP как в ноутбуке: vip != 1)
         df_day["mean"] = outliers_mean
 
         def classify_original(row):
@@ -386,21 +358,17 @@ def main():
             elif (g < 0) and (lower != 1):
                 return "Group 3"
             elif (g < 0) and (lower == 1) and (vip != 1):
-                # Если хочется через ENV-гейтинг:
-                # if (g < 0) and (lower == 1) and ((not REQ_VIP_G4) or (vip >= VIP_G4_MIN)):
                 return "Group 4"
             else:
                 return "Other"
 
         df_day["group"] = df_day.apply(classify_original, axis=1)
 
-        # Кандидаты по группам (уникальные email по группе)
         g1_cand = df_day[df_day["group"] == "Group 1"].drop_duplicates("email_norm").to_dict("records")
         g2_cand = df_day[df_day["group"] == "Group 2"].drop_duplicates("email_norm").to_dict("records")
         g3_cand = df_day[df_day["group"] == "Group 3"].drop_duplicates("email_norm").to_dict("records")
         g4_cand = df_day[df_day["group"] == "Group 4"].drop_duplicates("email_norm").to_dict("records")
 
-        # 2) Выбор по квотам
         day_wins_parts = []
         picked_emails = set()
         for (d_cur, gname), grp in df_day.groupby(["Date", "group"]):
@@ -418,7 +386,6 @@ def main():
             if not sel.empty:
                 day_wins_parts.append(sel)
 
-        # Базовый список выбранных (как объекты/словарики для добора)
         picked_rows = []
         if day_wins_parts:
             picked_rows = (
@@ -427,7 +394,6 @@ def main():
                 .to_dict("records")
             )
 
-        # 3) Добор до TOTAL_WINNERS_PER_DAY по флагу LW_TOPUP_INCLUDE_NEG
         already = len(picked_rows)
         need_more = max(0, TOTAL_WINNERS_PER_DAY - already)
         if need_more > 0:
@@ -440,7 +406,6 @@ def main():
                 TOTAL_WINNERS_PER_DAY,
                 include_neg=TOPUP_INCLUDE_NEG,
             )
-            # выделить только добавленных
             prev_keys = {_key(r) for r in picked_rows}
             added_rows = [r for r in new_picked if _key(r) not in prev_keys]
             if added_rows:
@@ -456,7 +421,6 @@ def main():
 
         day_wins = pd.concat(day_wins_parts, ignore_index=True)
 
-        # 4) Награды на день (ровно PRIZE)
         day_out = compute_metrics_and_rewards(day_wins)
         all_day_winners.append(day_out)
         prev_winners.update(day_out["email_norm"].unique().tolist())
@@ -469,7 +433,6 @@ def main():
 
     result = pd.concat(all_day_winners, ignore_index=True)
 
-    # upsert в lw_winners
     with psycopg.connect(dsn()) as con, con.cursor() as cur:
         for _, r in result.iterrows():
             cur.execute(
@@ -494,7 +457,6 @@ def main():
         con.commit()
     print(f"[ok] winners upserted for draw_id={draw_id}")
 
-    # --- Customer.io webhook: отправляем пуш для каждого победителя ---
     cio_webhook_url = os.getenv("CUSTOMERIO_WEBHOOK_URL")
     if cio_webhook_url:
         computed_at = datetime.now(timezone.utc).isoformat()
@@ -505,7 +467,7 @@ def main():
                 "user_id": int(r["AccountID"]) if pd.notna(r["AccountID"]) else 0,
                 "reward_amount": float(r["final_reward"]),
                 "draw_id": draw_id,
-                "claimed_at": computed_at,  # момент определения победителя
+                "claimed_at": computed_at,
                 "event_name": "lucky_winner_reward"
             }
             try:
@@ -520,7 +482,6 @@ def main():
     else:
         print("[info] CUSTOMERIO_WEBHOOK_URL not set, skipping webhooks")
 
-    # Триггер модалки Claim Bonus
     unique_emails = result["email_norm"].dropna().unique().tolist()
     with psycopg.connect(dsn()) as con, con.cursor() as cur:
         for email in unique_emails:
@@ -536,7 +497,6 @@ def main():
         con.commit()
     print(f"[ok] triggered Claim Bonus modal for {len(unique_emails)} unique winners (claim_denied_oneoff updated)")
 
-    # Чистим устаревшие строки за draw_id, которых нет в текущем результате
     to_keep = result["email_norm"].dropna().unique().tolist()
     with psycopg.connect(dsn()) as con, con.cursor() as cur:
         cur.execute(
@@ -551,7 +511,6 @@ def main():
         con.commit()
     print(f"[ok] pruned {deleted} stale rows for draw_id={draw_id}")
 
-    # Превью и контроль суммы
     print("[preview] первые 20 строк:")
     print(result[["Date", "email_norm", "AccountID", "group", "GGR", "final_reward"]].head(20))
     by_day = result.groupby("Date")["final_reward"].sum().reset_index()

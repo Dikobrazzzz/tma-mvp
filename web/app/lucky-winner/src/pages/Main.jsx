@@ -1,4 +1,3 @@
-// src/pages/Main.jsx
 import { useEffect, useState, useContext, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -8,10 +7,8 @@ import ProgressBar from "../components/ProgressBar";
 import Countdown from "../components/Countdown";
 import Header from "../components/Header";
 
-// 🔹 НОВОЕ: импортируем SVG из assets
 import imageMan from "../assets/Image man.optimized.svg";
 
-// Analytics
 import { trackClick } from "../analytics/analytics";
 
 export default function Main() {
@@ -21,7 +18,6 @@ export default function Main() {
   const SITE_URL = "https://win888strazci.com/en";
 
   const onDepositClick = (e) => {
-    // Track deposit button click
     trackClick("deposit_btn", "/", { destination: SITE_URL });
     
     const tg = window?.Telegram?.WebApp;
@@ -39,7 +35,6 @@ export default function Main() {
 
   const calculateNextDraw = () => {
     const now = new Date();
-    // Сбрасываем таймер в 00:01 UTC следующего дня (только для отсчёта времени)
     const reset = new Date(
       Date.UTC(
         now.getUTCFullYear(),
@@ -54,31 +49,27 @@ export default function Main() {
     return reset.getTime();
   };
 
-  // Витрина по умолчанию
-  const DEFAULT_CAP = 5000; // визуальный prize pool
+  const DEFAULT_CAP = 5000;
 
   const [data, setData] = useState({
-    cap: DEFAULT_CAP, // кап для прогресса
+    cap: DEFAULT_CAP,
     currency: "€",
-    progressAmount: 0, // фактический накопленный банк
-    progress: 0, // 0..1
+    progressAmount: 0,
+    progress: 0,
     nextDrawAt: calculateNextDraw(),
   });
 
   const [expanded, setExpanded] = useState(false);
 
-  // Пробуем подтянуть профиль (как было)
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
     (async () => {
       try {
-        const me = await api("/api/me"); // JWT-запрос (автоматически)
+        const me = await api("/api/me");
         if (cancelled) return;
-        // нет логики модалки
       } catch (e) {
         console.error("Main: /api/me failed:", e);
-        // navigate("/login", { replace: true });
       }
     })();
     return () => {
@@ -94,13 +85,12 @@ export default function Main() {
       return {
         ...d,
         cap,
-        progressAmount: a, // сколько накоплено
-        progress: Math.min(a / cap, 1), // 0..1
+        progressAmount: a,
+        progress: Math.min(a / cap, 1),
       };
     });
   };
 
-  // Первичная загрузка прогресса + поллинг
   useEffect(() => {
     let stop = false;
     const load = async () => {
@@ -119,7 +109,6 @@ export default function Main() {
           setData((d) => ({ ...d, nextDrawAt: calculateNextDraw() }));
         }
       } catch (e) {
-        // молчим
       }
     };
     load();
@@ -130,7 +119,6 @@ export default function Main() {
     };
   }, []);
 
-  // Принимаем "пуш" от Profile после успешного клейма
   useEffect(() => {
     const onUiProgress = (e) => {
       const detail = e?.detail || {};
@@ -144,7 +132,6 @@ export default function Main() {
 
   const { currency, progress, progressAmount, nextDrawAt } = data;
 
-  // Prize pool ВСЕГДА 5000 — витринная цель, не зависящая от прогресса
   const formattedWin = DEFAULT_CAP.toLocaleString("ru-RU");
 
   const paragraphs = useMemo(
@@ -158,10 +145,7 @@ export default function Main() {
 
   return (
     <div className="min-h-screen bg-[#151515] text-white flex flex-col">
-      {/* Раньше тут был preload hero-AVIF. Можно удалить, т.к. теперь используем SVG */}
-
       <div className="relative flex-shrink-0">
-        {/* 🔹 HERO теперь на SVG */}
         <img
           src={imageMan}
           alt="Lucky Winner hero"
@@ -172,7 +156,7 @@ export default function Main() {
           style={{ objectPosition: "50% 62%" }}
         />
 
-        <div className="absolute inset-x-0 top-0 z-10">
+        <div className="absolute inset-x-0 top-0 z-[400]">
           <Header />
         </div>
       </div>

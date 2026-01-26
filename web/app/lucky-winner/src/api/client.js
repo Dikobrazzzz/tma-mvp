@@ -11,7 +11,6 @@ async function safeJson(res) {
   try { return text ? JSON.parse(text) : {}; } catch { return {}; }
 }
 
-// Явный рефреш по HttpOnly cookie
 export async function refreshAccess() {
   try {
     const r = await fetch("/api/auth/refresh", {
@@ -28,7 +27,6 @@ export async function refreshAccess() {
   }
 }
 
-// Базовая функция запроса с авто-рефрешем по 401
 export async function api(path, { method = "GET", body, token, autoLogoutOn401 = false } = {}) {
   const t = token || await getToken();
   const headers = {

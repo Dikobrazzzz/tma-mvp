@@ -1,20 +1,46 @@
+# Python
 __pycache__/
 *.pyc
 .venv/
+venv/
+
+# Environment
 .env
 .env.*
 !*.sample
-# creds/секреты
+
+# Credentials/secrets
 *.json
 creds/
-# build/artifacts
+
+# Build/artifacts
 *.log
 *.sqlite
 *.db
 dist/
 build/
-# node (если фронт тут же)
+web/dist/
+
+# Node
 node_modules/
+
 # OS
 .DS_Store
 Thumbs.db
+
+# Server specific - exclude
+ops/
+certbot-etc/
+certbot-web/
+data/
+bin/
+
+# Jobs environment
+jobs/.env*
+!jobs/.env*.sample
+
+# Editor backups
+*.save
+*.save.*
+*.bak
+*.bak.*

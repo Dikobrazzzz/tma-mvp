@@ -1,4 +1,3 @@
-// src/pages/Settings.jsx
 import { useEffect, useState, useContext, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -110,8 +109,11 @@ export default function Settings() {
   };
 
   return (
-    <div className="min-h-screen bg-[#151515] text-white flex flex-col">
-      {/* HERO — Wall.svg как фон */}
+    <div className="min-h-screen bg-[#151515] text-white flex flex-col relative">
+      <div className="absolute inset-x-0 top-0 z-[400]">
+        <Header />
+      </div>
+
       <div className="relative flex-shrink-0 overflow-hidden">
         <img
           src={wall}
@@ -125,15 +127,9 @@ export default function Settings() {
             transform: "translateY(-160px)",
           }}
         />
-
-        <div className="absolute inset-x-0 top-0 z-10">
-          <Header />
-        </div>
       </div>
 
-      {/* КОНТЕНТ — тот же -mt-[420px], как на других страницах */}
       <div className="-mt-[420px] relative z-10">
-        {/* Заголовок Settings */}
         <div className="px-4 pt-4 pb-2">
           <h1 className="text-3xl font-bold text-white flex items-center gap-2">
             <img src={icProfile} alt="" className="h-9 w-9" />
@@ -141,9 +137,7 @@ export default function Settings() {
           </h1>
         </div>
 
-        {/* Основной контент — чуть ниже */}
         <div className="mt-16 md:mt-20">
-          {/* userId + Back */}
           <div className="pt-2 pb-4">
             <div className="w-[90%] mx-auto px-4">
               <div className="flex items-center justify-between">
@@ -176,7 +170,6 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Language */}
           <div className="w-[90%] mx-auto space-y-4 pb-4">
             <div className="w-full overflow-hidden" style={panelStyle}>
               <div
@@ -189,7 +182,7 @@ export default function Settings() {
                     alt="Language"
                     className="h-4 w-4"
                   />
-                  <span className="text-white">Language</span>
+                  <span className="text-white">{t("language")}</span>
                 </span>
                 <span
                   className="ml-auto shrink-0 leading-none"
@@ -238,7 +231,6 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Go out — фиксировано, 14vh от нижнего края */}
           <div
             className="fixed left-4 flex justify-start"
             style={{ bottom: "14vh" }}
@@ -256,4 +248,3 @@ export default function Settings() {
     </div>
   );
 }
-

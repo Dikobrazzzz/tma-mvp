@@ -18,7 +18,8 @@
   "top10Win": "Топ 10 выигрышей",
   "number": "№",
   "userId": "ID пользователя",
-  "totalWinsCount": "Общее количество выигрышей",
+  "totalWinsCount": "Кол-во выигрышей",
+  "winsAmount": "Сумма выигрыша",
   "totalWins": "Общие выигрыши €",
   "profile": "Профиль",
   "myWinnings": "Мои выигрыши",
@@ -52,5 +53,12 @@
   "claimBonus": "Получить бонус",
   "claimCongratulationsTitle": "Поздравляем!",
   "claimCongratulationsText": "Ваша награда уже в пути — ожидайте зачисления на баланс в течение 24 часов.",
-  "ok": "ОК"
+  "ok": "ОК",
+  "claimed": "Получено",
+  "yes": "Да",
+  "no": "Нет",
+  "noData": "Нет данных",
+  "emailNotFoundTitle": "Мы не нашли этот email",
+  "emailNotFoundText": "Если вы недавно зарегистрировались, попробуйте позже.",
+  "needSupport": "Нужна помощь?"
 }

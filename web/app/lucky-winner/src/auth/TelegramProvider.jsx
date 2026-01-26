@@ -30,7 +30,6 @@ export default function TelegramProvider({ children }) {
   const [token, _setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 1) холодный старт: подтянуть токен из tokenStore
   useEffect(() => {
     (async () => {
       const stored = await getToken();
@@ -39,7 +38,6 @@ export default function TelegramProvider({ children }) {
     })();
   }, []);
 
-  // 2) централизованная запись токена
   const setToken = useCallback(async (next) => {
     flushSync(() => _setToken(next || null));
     await storeSetToken(next || "");
@@ -52,14 +50,12 @@ export default function TelegramProvider({ children }) {
     fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
   }, [setToken]);
 
-  // 4) Telegram WebApp UX
   useEffect(() => {
     const tg = window?.Telegram?.WebApp;
     if (!tg) return;
     try { tg.ready?.(); tg.expand?.(); } catch {}
   }, []);
 
-  // 5) фоновый refresh (мягкий)
   useEffect(() => {
     let stop = false;
     async function tick() {

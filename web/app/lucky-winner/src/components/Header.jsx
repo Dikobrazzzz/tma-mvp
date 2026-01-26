@@ -1,5 +1,3 @@
-//opt/tma-mvp/web/app/lucky-winner/src/components/Header.jsx
-// src/components/Header.jsx
 import { useContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
@@ -22,7 +20,6 @@ export default function Header({
     if (tg?.openLink) tg.openLink(logoHref);
     else window.open(logoHref, "_blank", "noopener");
   }, [logoHref]);
-  // ---- Language dropdown ----
   const [open, setOpen] = useState(false);
   const langRef = useRef(null);
   const cur = normalize(i18n.language);
@@ -32,7 +29,6 @@ export default function Header({
     localStorage.setItem("language", lang);
     setOpen(false);
   };
-  // close on outside click
   useEffect(() => {
     if (!open) return;
     const onDoc = (e) => {
@@ -42,7 +38,6 @@ export default function Header({
     document.addEventListener("click", onDoc);
     return () => document.removeEventListener("click", onDoc);
   }, [open]);
-  // compact icon box
   const ICON_BOX = "w-4 h-4";
   const ICON_IMG =
     "w-4 h-4 rounded-full select-none pointer-events-none " +
@@ -60,18 +55,15 @@ export default function Header({
     <div
       data-sticky-header
       className={`relative z-[300] flex-shrink-0 px-4 pt-3 pb-2 flex items-center justify-between leading-none ${className}`}>
-      {/* Logo */}
       <img
         src={logo}
         alt="eStarz"
         className={`${LOGO_H} cursor-pointer`}
         onClick={onLogoClick}
       />
-      {/* Right side */}
       <div className="flex items-center gap-2">
         {showFlag && (
           <div className="relative" ref={langRef}>
-            {/* Main flag button without any outlines/rings */}
             <button
               onClick={() => setOpen((v) => !v)}
               className="
@@ -100,7 +92,6 @@ export default function Header({
                 style={{ boxShadow: "none" }}
               />
             </button>
-            {/* Dropdown */}
             <div
               className={`
                 absolute right-0 mt-2 ${PANEL_W} z-50
@@ -111,7 +102,6 @@ export default function Header({
                 ${open ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-1 pointer-events-none"}
               `}
             >
-              {/* English */}
               <button type="button" onClick={() => handleSelect("en")} className={itemBase}>
                 <span className={`shrink-0 ${ICON_BOX} inline-flex items-center justify-center`}>
                   <img src={flagUk} alt="EN" className={ICON_IMG} draggable={false} />
@@ -119,7 +109,6 @@ export default function Header({
                 <span className={itemText}>{t("language.en", "English")}</span>
               </button>
               <div className="border-t border-white/10" />
-              {/* Russian */}
               <button type="button" onClick={() => handleSelect("ru")} className={itemBase}>
                 <span className={`shrink-0 ${ICON_BOX} inline-flex items-center justify-center`}>
                   <img src={flagRu} alt="RU" className={ICON_IMG} draggable={false} />

@@ -1,8 +1,8 @@
-// src/components/EmailNotFoundModal.jsx
 import React, { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 
 export default function EmailNotFoundModal({ open, email, onClose }) {
-  // Отправляем факт показа модалки на бэкенд
+  const { t } = useTranslation();
   useEffect(() => {
     if (!open || !email) return;
     fetch("/api/analytics/email-not-found", {
@@ -17,13 +17,11 @@ export default function EmailNotFoundModal({ open, email, onClose }) {
 
   return (
     <>
-      {/* Затемняет/блюрит только контент под ним. Header/BottomNav выше, поэтому не блюрятся и не затемняются. */}
       <div
         className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm pointer-events-none"
         aria-hidden="true"
       />
 
-      {/* Поп-ап поверх всего — делаем прозрачным для событий */}
       <div className="fixed inset-0 z-[400] flex items-center justify-center px-4 pointer-events-none">
         <div
           className="relative w-[81%] max-w-sm rounded-3xl text-white p-8 min-h-[288px] flex flex-col pointer-events-auto"
@@ -36,7 +34,6 @@ export default function EmailNotFoundModal({ open, email, onClose }) {
           aria-modal="true"
           aria-labelledby="email-not-found-title"
         >
-          {/* Кнопка закрытия — без оранжевого прямоугольника/outline */}
           <button
             type="button"
             onClick={onClose}
@@ -74,20 +71,23 @@ export default function EmailNotFoundModal({ open, email, onClose }) {
           <div className="text-center mt-2 flex flex-col grow">
             <div>
               <h2 id="email-not-found-title" className="text-xl font-semibold leading-snug">
-                We couldn&apos;t find<br />this email
+                {t("emailNotFoundTitle", "We couldn't find this email")}
               </h2>
               <p className="mt-3 text-xs text-white/85 leading-snug">
-                If you registered recently,<br />please try again later.
+                {t("emailNotFoundText", "If you registered recently, please try again later.")}
               </p>
             </div>
 
             <div className="mt-auto pt-10">
               <div className="text-[10px] text-white/60 mb-1">
-                Need personalized support?
+                {t("needSupport", "Need personalized support?")}
               </div>
-              <div className="text-[10px] font-medium text-[#FFFE45]">
+              <a
+                href="mailto:support@888starz.bet"
+                className="text-[10px] font-medium text-[#FFFE45] hover:underline"
+              >
                 support@888STARZ
-              </div>
+              </a>
             </div>
           </div>
         </div>

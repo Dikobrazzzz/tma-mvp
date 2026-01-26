@@ -52,16 +52,34 @@ func dateBoundsForRange(r string) (time.Time, time.Time) {
 
 func completedBoundsForRange(rng string, now time.Time) (time.Time, time.Time) {
 	todayUTC := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	scriptRunTime := time.Date(todayUTC.Year(), todayUTC.Month(), todayUTC.Day(), 6, 3, 0, 0, time.UTC)
+	beforeScript := now.UTC().Before(scriptRunTime)
+
 	switch rng {
 	case "today":
+		if beforeScript {
+			return todayUTC.AddDate(0, 0, -2), todayUTC.AddDate(0, 0, -1)
+		}
 		return todayUTC.AddDate(0, 0, -1), todayUTC
 	case "yesterday":
+		if beforeScript {
+			return todayUTC.AddDate(0, 0, -3), todayUTC.AddDate(0, 0, -2)
+		}
 		return todayUTC.AddDate(0, 0, -2), todayUTC.AddDate(0, 0, -1)
 	case "last7":
+		if beforeScript {
+			return todayUTC.AddDate(0, 0, -8), todayUTC.AddDate(0, 0, -1)
+		}
 		return todayUTC.AddDate(0, 0, -7), todayUTC
 	case "top10":
+		if beforeScript {
+			return todayUTC.AddDate(0, 0, -8), todayUTC.AddDate(0, 0, -1)
+		}
 		return todayUTC.AddDate(0, 0, -7), todayUTC
 	default:
+		if beforeScript {
+			return todayUTC.AddDate(0, 0, -8), todayUTC.AddDate(0, 0, -1)
+		}
 		return todayUTC.AddDate(0, 0, -7), todayUTC
 	}
 }
@@ -83,7 +101,6 @@ type CustomerIoPayload struct {
 func sendCustomerIoBonus(ctx context.Context, payload CustomerIoPayload) error {
 	url := os.Getenv(customerIoWebhookEnv)
 	if url == "" {
-		// В проде лучше залогировать warning, но не ронять логику
 		log.Printf("customer.io: %s is not set, skipping webhook", customerIoWebhookEnv)
 		return nil
 	}
@@ -139,7 +156,6 @@ func main() {
 
 	api := r.Group("/api")
 	{
-		// Публичные
 		api.GET("/gate", s.GatePublic)
 		api.GET("/user", s.UserPublic)
 
@@ -152,7 +168,6 @@ func main() {
 
 		api.GET("/ui-progress", s.UIProgress)
 
-		// уже есть в твоих файлах
 		api.POST("/auth/tg-init", s.TgInitLogin)
 		api.POST("/auth/refresh", s.Refresh)
 		api.POST("/auth/logout", s.Logout)
@@ -160,9 +175,8 @@ func main() {
 		api.GET("/winners/latest", s.WinnersLatest)
 		api.GET("/winners", s.WinnersAgg)
 
-		// Защищённые
 		auth := api.Group("/")
-		auth.Use(AuthRequired()) // из твоего auth.go
+		auth.Use(AuthRequired())
 		auth.GET("/profile", s.ProfileProtected)
 
 		auth.GET("/me", s.MeProtected)
@@ -186,7 +200,6 @@ func main() {
 // --- migrations --------------------------------------------------------------
 
 func runMigrations(ctx context.Context, db *pgxpool.Pool) error {
-	// winners extras + индексы
 	if _, err := db.Exec(ctx, `
                 ALTER TABLE IF EXISTS public.lw_winners
                   ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
@@ -198,7 +211,6 @@ func runMigrations(ctx context.Context, db *pgxpool.Pool) error {
 		return fmt.Errorf("winners extras: %w", err)
 	}
 
-	// одноразовый флаг показа модалки (по email_norm)
 	if _, err := db.Exec(ctx, `
                 CREATE TABLE IF NOT EXISTS claim_denied_oneoff (
                         email_norm CITEXT PRIMARY KEY,
@@ -208,7 +220,6 @@ func runMigrations(ctx context.Context, db *pgxpool.Pool) error {
 		return fmt.Errorf("claim_denied_oneoff: %w", err)
 	}
 
-	// safety: users.balance (если пригодится)
 	if _, err := db.Exec(ctx, `
                 ALTER TABLE IF EXISTS users
                 ADD COLUMN IF NOT EXISTS balance NUMERIC(12,2) NOT NULL DEFAULT 0
@@ -216,7 +227,6 @@ func runMigrations(ctx context.Context, db *pgxpool.Pool) error {
 		return fmt.Errorf("users.balance: %w", err)
 	}
 
-	// аналитика логинов/модалок
 	if _, err := db.Exec(ctx, `
           CREATE TABLE IF NOT EXISTS auth_login_events (
             id          bigserial PRIMARY KEY,
@@ -238,7 +248,6 @@ func runMigrations(ctx context.Context, db *pgxpool.Pool) error {
 		return fmt.Errorf("auth_login_events: %w", err)
 	}
 
-	// дневной прогресс UI: кумулятивный банк до 5000 €
 	if _, err := db.Exec(ctx, `
           CREATE TABLE IF NOT EXISTS public.ui_progress (
             draw_id    date PRIMARY KEY,
@@ -263,7 +272,6 @@ func runMigrations(ctx context.Context, db *pgxpool.Pool) error {
 		return fmt.Errorf("ui_progress: %w", err)
 	}
 
-	// аналитика событий пользователей (визиты, клики, навигация)
 	if _, err := db.Exec(ctx, `
           CREATE TABLE IF NOT EXISTS analytics_events (
             id            bigserial PRIMARY KEY,
@@ -301,13 +309,7 @@ func runMigrations(ctx context.Context, db *pgxpool.Pool) error {
 
 // --- helpers -----------------------------------------------------------------
 
-// Единообразно достаём подтверждённый email_norm:
-// 1) users.email, если email_verified_at не NULL
-// 2) auth_emails (последний) — fallback
-// 3) lw_ledger (последний по времени) — крайний fallback
-// Получаем email_norm: auth_emails → users.email → последний из lw_ledger
 func getEmailNormFromCtxOrDB(c *gin.Context, db *pgxpool.Pool) (string, error) {
-	// 0) Если мидлварь уже положила email_norm
 	if v, ok := c.Get("email_norm"); ok {
 		if s, ok2 := v.(string); ok2 && s != "" {
 			return strings.ToLower(strings.TrimSpace(s)), nil
@@ -324,7 +326,6 @@ func getEmailNormFromCtxOrDB(c *gin.Context, db *pgxpool.Pool) (string, error) {
 		return "", errors.New("no_user")
 	}
 
-	// 1) auth_emails
 	var em string
 	_ = db.QueryRow(c, `
 		SELECT lower(email_norm)::text
@@ -337,7 +338,6 @@ func getEmailNormFromCtxOrDB(c *gin.Context, db *pgxpool.Pool) (string, error) {
 		return em, nil
 	}
 
-	// 2) users.email
 	_ = db.QueryRow(c, `
 		SELECT lower(email)::text
 		FROM users
@@ -348,7 +348,6 @@ func getEmailNormFromCtxOrDB(c *gin.Context, db *pgxpool.Pool) (string, error) {
 		return em, nil
 	}
 
-	// 3) последний email из lw_ledger для этого user_id (как крайний fallback)
 	_ = db.QueryRow(c, `
 		SELECT lower(email_norm)::text
 		FROM lw_ledger
@@ -383,17 +382,17 @@ func (s *Server) EmailNotFoundShown(c *gin.Context) {
 
 type AnalyticsEvent struct {
 	SessionID    string         `json:"session_id"`
-	EventType    string         `json:"event_type"`  // page_view, button_click, navigation, session_start, session_end
-	Page         string         `json:"page"`        // текущая страница
-	Target       string         `json:"target"`      // ID кнопки/элемента
-	Referrer     string         `json:"referrer"`    // предыдущая страница
-	TgUserID     *int64         `json:"tg_user_id"`  // Telegram user ID
-	Platform     string         `json:"platform"`    // tma, web, ios, android
-	TgPlatform   string         `json:"tg_platform"` // platform из TG WebApp
+	EventType    string         `json:"event_type"`
+	Page         string         `json:"page"`
+	Target       string         `json:"target"`
+	Referrer     string         `json:"referrer"`
+	TgUserID     *int64         `json:"tg_user_id"`
+	Platform     string         `json:"platform"`
+	TgPlatform   string         `json:"tg_platform"`
 	ScreenWidth  *int           `json:"screen_width"`
 	ScreenHeight *int           `json:"screen_height"`
 	Language     string         `json:"language"`
-	DurationMs   *int           `json:"duration_ms"` // для session_end
+	DurationMs   *int           `json:"duration_ms"`
 	Extra        map[string]any `json:"extra"`
 }
 
@@ -443,7 +442,6 @@ func (s *Server) saveAnalyticsEvent(c *gin.Context, event AnalyticsEvent) {
 	ip := c.ClientIP()
 	ua := c.Request.UserAgent()
 
-	// Пробуем получить user_id из контекста (если авторизован)
 	var userID *int64
 	if v, ok := c.Get("user_id"); ok {
 		if uid, ok2 := v.(int64); ok2 && uid > 0 {
@@ -474,7 +472,6 @@ func (s *Server) saveAnalyticsEvent(c *gin.Context, event AnalyticsEvent) {
 
 func (s *Server) GatePublic(c *gin.Context) {
 	c.JSON(200, gin.H{"blocked": false, "seconds_left": 0})
-	// для last_seen (пример)
 	_, _ = s.DB.Exec(c, `
 		INSERT INTO users(tg_id) VALUES(1)
 		ON CONFLICT (tg_id) DO UPDATE SET last_seen_at = NOW()
@@ -530,7 +527,6 @@ func (s *Server) AuthExists(c *gin.Context) {
 		return
 	}
 
-	// если не разрешён — логируем факт проверки и отказа
 	if !exists {
 		logLoginEvent(c, s.DB, email, nil, "email_check_not_allowed", "tma", map[string]any{
 			"when": "before_send_code",
@@ -553,7 +549,6 @@ func (s *Server) VerifySend(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "Invalid email"})
 		return
 	}
-	// белый список
 	var allowed bool
 	if err := s.DB.QueryRow(c,
 		`SELECT EXISTS(SELECT 1 FROM auth_emails WHERE email_norm = $1)`,
@@ -566,8 +561,6 @@ func (s *Server) VerifySend(c *gin.Context) {
 		c.JSON(403, gin.H{"error": "Email is not allowed"})
 		return
 	}
-
-	// MVP: tg_id=1 → обеспечим users.id
 	tgID := int64(1)
 	var userID int64
 	err := s.DB.QueryRow(c, `SELECT id FROM users WHERE tg_id = $1`, tgID).Scan(&userID)
@@ -583,7 +576,7 @@ func (s *Server) VerifySend(c *gin.Context) {
 	// OTP
 	code := rand.Intn(900000) + 100000
 	codeStr := fmt.Sprintf("%06d", code)
-	hash := codeStr // MVP
+	hash := codeStr 
 	expires := time.Now().Add(30 * time.Minute)
 	resendAfter := time.Now().Add(30 * time.Second)
 
@@ -615,7 +608,6 @@ func (s *Server) VerifyCheck(c *gin.Context) {
 	}
 	email := normalizeEmail(req.Email)
 
-	// MVP: tg_id=1 → users.id
 	tgID := int64(1)
 	var userID int64
 	if err := s.DB.QueryRow(c, `SELECT id FROM users WHERE tg_id=$1`, tgID).Scan(&userID); err != nil {
@@ -623,7 +615,6 @@ func (s *Server) VerifyCheck(c *gin.Context) {
 		return
 	}
 
-	// проверка OTP
 	var hash string
 	err := s.DB.QueryRow(c, `
 		SELECT code_hash
@@ -635,10 +626,8 @@ func (s *Server) VerifyCheck(c *gin.Context) {
 		return
 	}
 
-	// consumed
 	_, _ = s.DB.Exec(c, `DELETE FROM otp WHERE user_id=$1 AND email=$2`, userID, email)
 
-	// фиксируем e-mail в users и обновляем/создаём привязку в auth_emails
 	_, _ = s.DB.Exec(c, `UPDATE users SET email=$1, email_verified_at=NOW() WHERE id=$2`, email, userID)
 	_, _ = s.DB.Exec(c, `
 		INSERT INTO auth_emails (user_id, email_norm)
@@ -646,7 +635,6 @@ func (s *Server) VerifyCheck(c *gin.Context) {
 		ON CONFLICT (email_norm) DO UPDATE SET user_id = EXCLUDED.user_id
 	`, userID, email)
 
-	// токены (реализация в auth.go)
 	token, err := IssueAccessToken(userID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "token error"})
@@ -656,7 +644,6 @@ func (s *Server) VerifyCheck(c *gin.Context) {
 		setRefreshCookie(c, rt, exp)
 	}
 
-	// ← лог успешного входа ДО ответа
 	logLoginEvent(c, s.DB, email, &userID, "login_ok", "tma", map[string]any{
 		"method": "otp",
 	})
@@ -664,7 +651,6 @@ func (s *Server) VerifyCheck(c *gin.Context) {
 	c.JSON(200, gin.H{"token": token, "verified": true})
 }
 
-// SMTP (MVP)
 func (s *Server) sendEmail(to, code string) error {
 	from := os.Getenv("SMTP_USER")
 	pass := os.Getenv("SMTP_PASS")
@@ -742,7 +728,6 @@ func (s *Server) ProfileProtected(c *gin.Context) {
 	})
 }
 
-// GET /api/winners/my — выигрыши по email_norm (надёжнее, чем по user_id)
 func (s *Server) WinnersMy(c *gin.Context) {
 	emailNorm, err := getEmailNormFromCtxOrDB(c, s.DB)
 	if err != nil || emailNorm == "" {
@@ -868,7 +853,6 @@ func (s *Server) WinnersAgg(c *gin.Context) {
 	c.JSON(200, list)
 }
 
-// GET /api/me — возвращаем внешний id + флаг показа модалки
 func (s *Server) MeProtected(c *gin.Context) {
 	emailNorm, err := getEmailNormFromCtxOrDB(c, s.DB)
 	if err != nil || emailNorm == "" {
@@ -876,7 +860,6 @@ func (s *Server) MeProtected(c *gin.Context) {
 		return
 	}
 
-	// внешний id (user_id из lw_ledger) — берём максимальный по этому email
 	var ledgerUserID sql.NullInt64
 	_ = s.DB.QueryRow(c, `
 		SELECT NULLIF(MAX(l.user_id),0)::bigint
@@ -890,8 +873,6 @@ func (s *Server) MeProtected(c *gin.Context) {
 		ledgerPtr = &v
 	}
 
-	// Показываем модалку если есть незаклеймленный выигрыш за вчера (UTC)
-	// Окно клейма: с 06:03 UTC до 06:03 UTC следующего дня (~24 часа)
 	yesterday := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
 	var shouldShow bool
 	_ = s.DB.QueryRow(c, `
@@ -915,7 +896,6 @@ func (s *Server) MeProtected(c *gin.Context) {
 	})
 }
 
-// POST /api/winners/claim { draw_id } — клейм по (draw_id, user_id)
 func (s *Server) WinnersClaim(c *gin.Context) {
 	uidAny, _ := c.Get("user_id")
 	userID, ok := uidAny.(int64)
@@ -965,7 +945,6 @@ func (s *Server) ClaimDeniedAck(c *gin.Context) {
 		return
 	}
 
-	// 1) Помечаем, что модалка показана
 	_, e := s.DB.Exec(c, `
 		INSERT INTO claim_denied_oneoff(email_norm, shown_at)
 		VALUES ($1, NOW())
@@ -976,7 +955,6 @@ func (s *Server) ClaimDeniedAck(c *gin.Context) {
 		return
 	}
 
-	// BONUS: 2) Создаём «ожидающую» запись в lw_winners (если её ещё нет)
 	uidAny, _ := c.Get("user_id")
 	userID, ok := uidAny.(int64)
 	if ok && userID > 0 {
@@ -986,13 +964,12 @@ func (s *Server) ClaimDeniedAck(c *gin.Context) {
 				amount = f
 			}
 		}
-		today := time.Now().UTC().Format("2006-01-02") // draw_id как YYYY-MM-DD
-		// Вставляем, если ещё нет бонусной строки на сегодня для этого user_id
+		today := time.Now().UTC().Format("2006-01-02")
 		_, _ = s.DB.Exec(c, `
 			INSERT INTO public.lw_winners (draw_id, email_norm, user_id, amount_eur, rank, reason, computed_at, claimed_at)
 			SELECT $1, $2::citext, $3, $4, 0, 'bonus', NOW(), NULL
 			WHERE NOT EXISTS (
-				SELECT 1 FROM public.lw_winners 
+				SELECT 1 FROM public.lw_winners
 				WHERE draw_id = $1 AND user_id = $3 AND reason = 'bonus'
 			)
 		`, today, emailNorm, userID, amount)
@@ -1009,8 +986,6 @@ func (s *Server) UIProgress(c *gin.Context) {
 
 	var totalPrizes, totalClaimed sql.NullFloat64
 
-	// Считаем суммарный "банк" и суммарно заклеймленное за ВСЕ
-	// draw_id < сегодня (т.е. за полностью завершённые дни).
 	err := s.DB.QueryRow(c, `
 		SELECT
 		  COALESCE(SUM(amount_eur), 0)::float8 AS total_prizes,
@@ -1034,8 +1009,6 @@ func (s *Server) UIProgress(c *gin.Context) {
 		tc = totalClaimed.Float64
 	}
 
-	// Накопленный банк = 1/5 от незабранной суммы за все прошлые дни
-	// Каждый день разыгрывается ~500€, если не забрали — 500/5 = 100€ добавляется к прогрессу
 	unclaimed := tp - tc
 	if unclaimed < 0 {
 		unclaimed = 0
@@ -1044,16 +1017,14 @@ func (s *Server) UIProgress(c *gin.Context) {
 	if amount > capEUR {
 		amount = capEUR
 	}
-	// Округляем до целого
-	amountRounded := int(amount + 0.5)
+	amountRounded := (int(amount) / 100) * 100
 
-	// Следующий «шаг» прогресса — в 6:00 UTC (9:00 МСК) следующего дня
 	resetAt := time.Date(now.Year(), now.Month(), now.Day()+1, 6, 0, 0, 0, time.UTC)
 
 	c.JSON(200, gin.H{
-		"draw_id":      todayStr,      // просто "сегодня", можно не использовать на фронте
-		"amount_eur":   amountRounded, // накопленный банк 0..5000 (округлённо)
-		"cap_eur":      capEUR,        // фронт делит на это
+		"draw_id":      todayStr,
+		"amount_eur":   amountRounded,
+		"cap_eur":      capEUR,
 		"reset_at_utc": resetAt.Format(time.RFC3339),
 	})
 }
@@ -1082,15 +1053,12 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		req.Reason = "bonus"
 	}
 
-	// Нужен email_norm
 	emailNorm, err := getEmailNormFromCtxOrDB(c, s.DB)
 	if err != nil || emailNorm == "" {
 		c.JSON(401, gin.H{"error": "unauthorized_no_email"})
 		return
 	}
 
-	// draw_id = вчерашняя дата в UTC (как в скрипте lw_job)
-	// Окно клейма: с 06:03 UTC до 06:03 UTC следующего дня (~24 часа)
 	yesterday := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
 
 	ctx := c.Request.Context()
@@ -1101,7 +1069,6 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// 0) Проверяем, что у пользователя есть незаклеймленный выигрыш за вчера
 	var existYesterday bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -1120,7 +1087,6 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		return
 	}
 
-	// 1) Денежная часть
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO wallet_ledger(user_id, amount_eur, reason)
 		VALUES($1, $2, $3)
@@ -1135,7 +1101,6 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		return
 	}
 
-	// 2) Помечаем «вчерашний» выигрыш(и) как заклеймленные и привязываем user_id.
 	cmdTag, err := tx.Exec(ctx, `
 		UPDATE public.lw_winners
 		   SET claimed_at = COALESCE(claimed_at, NOW()),
@@ -1153,7 +1118,6 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		return
 	}
 
-	// 3) Отметим, что модалка «показана»
 	_, _ = tx.Exec(ctx, `
 		UPDATE public.claim_denied_oneoff
 		   SET shown_at = NOW()
@@ -1161,7 +1125,6 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		   AND shown_at IS NULL
 	`, emailNorm)
 
-	// 4) Уведомление в PostgreSQL (как было)
 	payload := map[string]any{
 		"event":      "claim_bonus",
 		"user_id":    userID,
@@ -1183,19 +1146,8 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		return
 	}
 
-	// --- Customer.io webhook: бонус начислен, шлём письмо -------------------
-	// фиксируем момент, когда операция точно завершилась
 	claimedAt := time.Now().UTC()
 
-	// именно эти поля вы договорились слать:
-	// {
-	//   "email": "user@example.com",
-	//   "user_id": 1454626993,
-	//   "reward_amount": 25.5,
-	//   "draw_id": "2025-11-19",
-	//   "claimed_at": "2025-11-20T12:34:56Z",
-	//   "event_name": "lucky_winner_reward"
-	// }
 	cioPayload := CustomerIoPayload{
 		Email:        emailNorm,
 		UserID:       userID,
@@ -1205,7 +1157,6 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		EventName:    "lucky_winner_reward",
 	}
 
-	// Шлём асинхронно, чтобы не тормозить ответ в мини-апп
 	go func(p CustomerIoPayload) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -1215,13 +1166,11 @@ func (s *Server) ClaimBonus(c *gin.Context) {
 		}
 	}(cioPayload)
 
-	// Ответ клиенту (мини-аппу)
 	c.JSON(200, gin.H{
 		"new_balance": newBal,
 	})
 }
 
-// feed/top10 (как были)
 func (s *Server) WinnersFeed(c *gin.Context) {
 	rng := c.Query("range")
 	from, to := completedBoundsForRange(rng, time.Now())

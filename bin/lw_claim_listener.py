@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-"""
-Lucky Winner — realtime Sheets updater for claimed_at events.
-
-Слушает канал Postgres LISTEN/NOTIFY 'lw_claimed' и при получении JSON-пэйлоада:
-{
-  "op": "CLAIMED",
-  "draw_id": "YYYY-MM-DD",
-  "email_norm": "user@example.com",
-  "claimed_at": "2025-11-12T05:45:15+00:00"
-}
-обновляет колонку "Claimed" в Google Sheet (лист "winners") на "Yes" для строки с
-совпадающими Date и Email.
-
-Зависимости: psycopg (v3), google-api-python-client, google-auth.
-"""
-
 import os
 import sys
 import json
@@ -27,7 +10,6 @@ from datetime import datetime
 
 import psycopg
 
-# ── путь к jobs, чтобы импортировать gsheets_export.py ─────────────────────────
 JOBS_DIR = "/opt/tma-mvp/jobs"
 if JOBS_DIR not in sys.path:
     sys.path.insert(0, JOBS_DIR)
@@ -55,7 +37,6 @@ def _sig_handler(signum, frame):
 signal.signal(signal.SIGTERM, _sig_handler)
 signal.signal(signal.SIGINT, _sig_handler)
 
-# ── валидация обязательных переменных ─────────────────────────────────────────
 def _fatal_env(msg: str):
     print(f"[fatal] {msg}", flush=True)
     sys.exit(1)
@@ -63,11 +44,7 @@ def _fatal_env(msg: str):
 if not LW_GSHEET_ID or not os.path.isfile(LW_GSHEET_CREDS):
     _fatal_env("LW_GSHEET_ID or LW_GSHEET_CREDS not set/exists")
 
-# ── обработчик нотификаций ────────────────────────────────────────────────────
 def on_notify(payload: str):
-    """
-    Обрабатывает входящий JSON из NOTIFY.
-    """
     try:
         evt = json.loads(payload)
     except Exception as e:
@@ -75,7 +52,6 @@ def on_notify(payload: str):
         return
 
     if evt.get("op") != "CLAIMED":
-        # игнорим прочие типы
         return
 
     date_str   = (evt.get("draw_id") or "").strip()
@@ -84,7 +60,6 @@ def on_notify(payload: str):
         log(f"[warn] missing fields in payload: {payload!r}")
         return
 
-    # в листе ожидаются заголовки: Date, Email, Claimed
     try:
         ok = set_claimed_in_sheet(
             spreadsheet_id=LW_GSHEET_ID,
@@ -98,13 +73,8 @@ def on_notify(payload: str):
     except Exception as e:
         log(f"[error] set_claimed_in_sheet failed: {e}")
 
-# ── цикл прослушивания LISTEN/NOTIFY (psycopg3 + select) ─────────────────────
 def listen_loop():
-    """
-    Блокирующий цикл: LISTEN lw_claimed; затем ждём события через select().
-    """
     with psycopg.connect(LW_PG_DSN) as conn:
-        # LISTEN должен быть зафиксирован (транзакция завершена), чтобы начать получать события
         with conn.cursor() as cur:
             cur.execute("LISTEN lw_claimed;")
         conn.commit()
@@ -113,17 +83,13 @@ def listen_loop():
         fd = conn.fileno()
 
         while _running:
-            # ждём доступность сокета; timeout для возможности корректного выхода
             r, _, _ = select.select([fd], [], [], 1.0)
             if not r:
                 continue
 
-            # считываем все накопленные нотификации
             for n in conn.notifies():
-                # n.payload — строка
                 on_notify(n.payload)
 
-# ── стратегия переподключений ────────────────────────────────────────────────
 def main():
     backoff = 1.0
     while _running:
@@ -132,9 +98,8 @@ def main():
         except Exception as e:
             log(f"[error] listen_loop crashed: {e!r}; retry in {backoff:.1f}s")
             time.sleep(backoff)
-            backoff = min(backoff * 2.0, 30.0)  # экспоненциально до 30с
+            backoff = min(backoff * 2.0, 30.0)
         else:
-            # нормальное завершение (например, SIGTERM)
             break
 
 if __name__ == "__main__":
